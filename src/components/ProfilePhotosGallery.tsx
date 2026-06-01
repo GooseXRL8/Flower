@@ -4,8 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../utils/firebase';
+import { supabase, handleSupabaseError, SupabaseOperationType, normalizeImageUrl, generateUUID } from '../utils/supabase';
 import { ProfilePhoto, User, Profile } from '../types';
 import { SafeImage } from './SafeImage';
 import { DEMO_PHOTOS } from '../data/demoData';
@@ -24,6 +23,12 @@ export function ProfilePhotosGallery({ user, profile, isDemo = false }: ProfileP
   const [ownerName, setOwnerName] = useState(user.username);
   const [error, setError] = useState('');
   const [photoToDelete, setPhotoToDelete] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
+
+  useEffect(() => {
+    setPreviewError(false);
+  }, [inputUrl]);
 
   const limitNumber = 5;
   const theme = profile.theme || 'pink';
@@ -52,39 +57,38 @@ export function ProfilePhotosGallery({ user, profile, isDemo = false }: ProfileP
     },
   }[theme];
 
-  useEffect(() => {
+  const loadPhotos = async () => {
     if (isDemo) {
       setPhotos(DEMO_PHOTOS);
       setLoading(false);
       return;
     }
 
-    const photosPath = 'photos';
-    const q = query(
-      collection(db, photosPath),
-      where('profile_id', '==', profile.id)
-    );
+    try {
+      setLoading(true);
+      const { data, error: fetchErr } = await supabase
+        .from('photos')
+        .select('*')
+        .eq('profile_id', profile.id);
 
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const list: ProfilePhoto[] = [];
-        snapshot.forEach((d) => {
-          list.push(d.data() as ProfilePhoto);
-        });
-        // Sort chronologically descending (newest polaroids first)
-        list.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-        setPhotos(list);
-        setLoading(false);
-      },
-      (err) => {
-        console.error("List photos error:", err);
-        setError("Não foi possível carregar as fotos do mural (erro de permissão ou conexão).");
-        setLoading(false);
-      }
-    );
+      if (fetchErr) throw fetchErr;
 
-    return () => unsubscribe();
+      const sortedList = (data || []).sort((a: any, b: any) => 
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      ) as ProfilePhoto[];
+
+      setPhotos(sortedList);
+      setError('');
+    } catch (err: any) {
+      console.error('List photos error from Supabase:', err);
+      setError('Não foi possível carregar as fotos do mural (erro de conexão com o Supabase).');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadPhotos();
   }, [profile.id, isDemo]);
 
   const handleAddPhoto = async (e: React.FormEvent) => {
@@ -98,13 +102,14 @@ export function ProfilePhotosGallery({ user, profile, isDemo = false }: ProfileP
       return;
     }
 
-    const newPhotoId = 'photo_' + Math.random().toString(36).substring(2, 11);
+    const finalPhotoUrl = normalizeImageUrl(inputUrl);
+    const newPhotoId = generateUUID();
     const newPhoto: ProfilePhoto = {
       id: newPhotoId,
       user_id: user.id,
       profile_id: profile.id,
       owner_name: ownerName.trim() || user.username,
-      url: inputUrl.trim(),
+      url: finalPhotoUrl,
       created_at: new Date().toISOString(),
     };
 
@@ -115,10 +120,17 @@ export function ProfilePhotosGallery({ user, profile, isDemo = false }: ProfileP
     }
 
     try {
-      await setDoc(doc(db, 'photos', newPhotoId), newPhoto);
+      const { error: insertErr } = await supabase
+        .from('photos')
+        .insert(newPhoto);
+
+      if (insertErr) throw insertErr;
+
       setInputUrl('');
-    } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, 'photos/' + newPhotoId);
+      await loadPhotos();
+    } catch (err: any) {
+      console.error('Error inserting photos in Supabase:', err);
+      setError('Falha ao adicionar a foto no Supabase: ' + (err.message || String(err)));
     }
   };
 
@@ -162,22 +174,109 @@ export function ProfilePhotosGallery({ user, profile, isDemo = false }: ProfileP
                     onChange={(e) => setOwnerName(e.target.value)}
                     maxLength={20}
                     placeholder="Ex: Nome de quem tirou"
-                    className={`w-full text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 ${themeColors.ring}`}
+                    className={`w-full text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 ${themeColors.ring} cursor-pointer`}
                   />
                 </div>
 
                 <div className="space-y-1">
                   <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">URL do Registro</label>
                   <input
-                    type="url"
+                    type="text"
                     required
                     value={inputUrl}
                     onChange={(e) => setInputUrl(e.target.value)}
-                    placeholder="https://images.unsplash.com/..."
-                    className={`w-full text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 ${themeColors.ring}`}
+                    placeholder="Cole qualquer link (Drive, Dropbox, Imgur, etc.)"
+                    className={`w-full text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 ${themeColors.ring} cursor-pointer`}
                   />
                 </div>
               </div>
+
+              {/* LIVE PREVIEW AND HELP BLOCK */}
+              {inputUrl.trim() && (
+                <div className="border border-dashed border-gray-200 rounded-xl p-3 bg-white space-y-2.5 animate-fade-in text-left">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Visualização Prévia (Amostra)</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowGuide(!showGuide)}
+                      className={`text-[10px] font-bold underline cursor-pointer hover:opacity-80 ${themeColors.text}`}
+                    >
+                      {showGuide ? 'Ocultar Dicas' : '❓ Como conseguir o link correto?'}
+                    </button>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+                    {/* Compact Image sample frame */}
+                    <div className="relative w-20 h-20 rounded-lg overflow-hidden bg-gray-50 border border-gray-100 flex-shrink-0 flex items-center justify-center">
+                      {!previewError ? (
+                        <img
+                          src={normalizeImageUrl(inputUrl)}
+                          alt="Prévia em tempo real"
+                          onError={() => {
+                            console.warn('Real-time url load failure on live preview:', inputUrl);
+                            setPreviewError(true);
+                          }}
+                          className="w-full h-full object-cover"
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        <div className="text-center p-1 flex flex-col items-center justify-center h-full w-full bg-rose-50 text-rose-500">
+                          <span className="text-xl">⚠️</span>
+                          <span className="text-[7px] font-mono leading-tight uppercase font-bold mt-0.5">Erro</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex-1 space-y-1 text-xs">
+                      {previewError ? (
+                        <>
+                          <p className="font-bold text-rose-600 flex items-center gap-1">
+                            <span>❌</span> Não foi possível carregar a imagem.
+                          </p>
+                          <p className="text-[10px] text-gray-500 leading-normal">
+                            Isso ocorre se o link não corresponder a uma imagem direta ou se for restrito. Clique no botão de dicas acima para saber como resolver!
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="font-bold text-emerald-600 flex items-center gap-1">
+                            <span>✓</span> Imagem detectada e carregada!
+                          </p>
+                          <p className="text-[10px] text-gray-500 leading-normal">
+                            O link inserido é válido e será exibido perfeitamente na sua galeria se estiver compartilhado publicamente.
+                          </p>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Expandable Image Guide */}
+                  {showGuide && (
+                    <div className="text-[11px] text-gray-600 space-y-2 bg-gray-50 p-3 rounded-xl border border-gray-100 leading-relaxed font-sans">
+                      <p className="font-bold text-gray-800">Guia Prático para Links de Imagens:</p>
+                      
+                      <div className="space-y-1.5 pl-1">
+                        <div>
+                          <p className="font-semibold text-gray-700">📌 Google Drive:</p>
+                          <p className="text-gray-500">No Drive, mude o compartilhamento para <strong>"Qualquer pessoa com o link" (Leitor)</strong>. Copie esse link e cole. Nós o convertemos automaticamente!</p>
+                        </div>
+                        <div>
+                          <p className="font-semibold text-gray-700">📌 Pinterest:</p>
+                          <p className="text-gray-500">Não copie o link da barra de endereços do navegador! Em vez disso, <strong>clique com o botão direito diretamente na imagem do Pinterest e selecione "Copiar endereço da imagem"</strong> (deve terminar em .jpg ou .png).</p>
+                        </div>
+                        <div>
+                          <p className="font-semibold text-gray-700">📌 Dropbox:</p>
+                          <p className="text-gray-500">Basta copiar o link padrão do compartilhamento público que nós cuidamos do resto para você.</p>
+                        </div>
+                        <div>
+                          <p className="font-semibold text-gray-700">📌 Imagens da Internet ou WhatsApp Web:</p>
+                          <p className="text-gray-500">Procure copiar o link direto terminando em extensões válidas (.jpg, .png, .webp). Links temporários do WhatsApp Web expirarão após algumas horas.</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="flex justify-end pt-1">
                 <button
@@ -258,10 +357,18 @@ export function ProfilePhotosGallery({ user, profile, isDemo = false }: ProfileP
             return;
           }
           try {
-            await deleteDoc(doc(db, 'photos', id));
+            const { error: delErr } = await supabase
+              .from('photos')
+              .delete()
+              .eq('id', id);
+
+            if (delErr) throw delErr;
+
             setError('');
-          } catch (err) {
-            handleFirestoreError(err, OperationType.DELETE, 'photos/' + id);
+            await loadPhotos();
+          } catch (err: any) {
+            console.error('Delete photo Error in Supabase:', err);
+            setError('Não foi possível remover essa foto do Supabase: ' + (err.message || String(err)));
           }
         }}
         title="Excluir Polaroid?"

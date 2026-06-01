@@ -4,9 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { doc, getDoc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
-import { auth, db } from './utils/firebase';
+import { supabase, generateUUID } from './utils/supabase';
 import { User, Profile, LoveTheme } from './types';
 import { Login } from './components/Login';
 import { FlowerAnimation } from './components/FlowerAnimation';
@@ -35,90 +33,140 @@ export default function App() {
   const [obSetupName2, setObSetupName2] = useState('');
   const [obSetupStartDate, setObSetupStartDate] = useState(new Date().toISOString().split('T')[0]);
   const [obSetupTheme, setObSetupTheme] = useState<LoveTheme>('pink');
+  const [obSetupError, setObSetupError] = useState<string | null>(null);
+  const [obSetupSubmitting, setObSetupSubmitting] = useState(false);
+  const [showRlsGuide, setShowRlsGuide] = useState(false);
 
-  // Firebase auth state listener
+  // Supabase auth state listener
   useEffect(() => {
-    let unsubProfile: (() => void) | null = null;
+    let activeUserUnsub = false;
 
-    const unsubAuth = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        setIsDemoMode(false);
-        // Fetch or listen to user document in Firestore
-        const userRef = doc(db, 'users', firebaseUser.uid);
-        
-        // Listen to User record changes in real-time
-        const unsubUser = onSnapshot(userRef, async (userSnap) => {
-          if (userSnap.exists()) {
-            const userData = userSnap.data() as User;
-            setCurrentUser(userData);
+    // Failsafe timeout to prevent infinite loading state
+    const fallbackTimeout = setTimeout(() => {
+      if (!activeUserUnsub) {
+        console.warn('Supabase loading took longer than 4.5s. Activating fallback rescue.');
+        setLoading(false);
+      }
+    }, 4500);
 
-            // If the user has an assigned profile, listen to profile changes in real-time
-            if (userData.assigned_profile_id) {
-              if (unsubProfile) unsubProfile();
-              
-              unsubProfile = onSnapshot(doc(db, 'profiles', userData.assigned_profile_id), (profileSnap) => {
-                if (profileSnap.exists()) {
-                  setActiveProfile(profileSnap.data() as Profile);
-                } else {
-                  setActiveProfile(null);
-                }
-                setLoading(false);
-              }, (err) => {
-                console.error('Error fetching profile snapshot: ', err);
-                setLoading(false);
-              });
+    const fetchPublicUserDataAndProfile = async (authSecUser: any) => {
+      try {
+        setLoading(true);
+        // Load the public user details
+        const { data: publicUser, error: uErr } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', authSecUser.id)
+          .maybeSingle();
+
+        if (activeUserUnsub) return;
+
+        if (publicUser) {
+          const userData = publicUser as User;
+          setCurrentUser(userData);
+
+          if (userData.assigned_profile_id) {
+            // Load the profile details
+            const { data: profileData, error: pErr } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', userData.assigned_profile_id)
+              .maybeSingle();
+
+            if (activeUserUnsub) return;
+
+            if (profileData) {
+              setActiveProfile(profileData as Profile);
             } else {
               setActiveProfile(null);
-              setLoading(false);
             }
           } else {
-            // First time login - Bootstrap user document
-            const isAdmin = firebaseUser.email === 'joaotitua@gmail.com';
-            const newUser: User = {
-              id: firebaseUser.uid,
-              username: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Casal',
-              is_admin: isAdmin,
-              assigned_profile_id: null,
-              created_at: new Date().toISOString()
-            };
-            
-            await setDoc(userRef, newUser);
-            setCurrentUser(newUser);
             setActiveProfile(null);
-            setLoading(false);
           }
-        }, (err) => {
-          console.error('Error fetching user snapshot: ', err);
-          setLoading(false);
-        });
+        } else {
+          // Public user does not exist yet. Let's create it.
+          const isAdmin = authSecUser.email === 'joaotitua@gmail.com';
+          const emailPrefix = authSecUser.email ? authSecUser.email.split('@')[0] : 'Parceiro(a)';
+          const displayName = authSecUser.user_metadata?.full_name || authSecUser.user_metadata?.name || emailPrefix;
 
-        return () => {
-          unsubUser();
-          if (unsubProfile) unsubProfile();
-        };
+          const newUser: User = {
+            id: authSecUser.id,
+            username: displayName,
+            is_admin: isAdmin,
+            assigned_profile_id: null,
+            created_at: new Date().toISOString()
+          };
+
+          const { error: insErr } = await supabase
+            .from('users')
+            .insert(newUser);
+
+          if (activeUserUnsub) return;
+
+          setCurrentUser(newUser);
+          setActiveProfile(null);
+        }
+      } catch (err) {
+        console.error('Error fetching public user/profile from Supabase:', err);
+      } finally {
+        if (!activeUserUnsub) {
+          setLoading(false);
+          clearTimeout(fallbackTimeout);
+        }
+      }
+    };
+
+    // Get current session initially
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (activeUserUnsub) return;
+      if (session?.user) {
+        fetchPublicUserDataAndProfile(session.user);
+      } else {
+        setLoading(false);
+        clearTimeout(fallbackTimeout);
+      }
+    }).catch(err => {
+      console.error('Error in initial getSession:', err);
+      if (!activeUserUnsub) {
+        setLoading(false);
+        clearTimeout(fallbackTimeout);
+      }
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (activeUserUnsub) return;
+
+      if (session?.user) {
+        setIsDemoMode(false);
+        fetchPublicUserDataAndProfile(session.user);
       } else {
         setCurrentUser(null);
         setActiveProfile(null);
         setLoading(false);
+        clearTimeout(fallbackTimeout);
       }
     });
 
     return () => {
-      unsubAuth();
-      if (unsubProfile) unsubProfile();
+      activeUserUnsub = true;
+      clearTimeout(fallbackTimeout);
+      subscription.unsubscribe();
     };
   }, []);
 
   const handleLogin = (user: User) => {
     setCurrentUser(user);
-    // User profile transitions are handled reactively by the onAuthStateChanged listener
+    // User profile transitions are handled reactively or initially loaded
   };
 
   const handleCreateOnboardingProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser) return;
 
-    const newPid = 'prof_' + Math.random().toString(36).substring(2, 11);
+    setObSetupError(null);
+    setObSetupSubmitting(true);
+
+    const newPid = generateUUID();
     const newProfile: Profile = {
       id: newPid,
       name1: obSetupName1.trim() || currentUser.username,
@@ -131,18 +179,65 @@ export default function App() {
     };
 
     try {
-      // 1. Create Profile document in Firestore
-      await setDoc(doc(db, 'profiles', newPid), newProfile);
+      // 1. Create Profile document in Supabase
+      const { error: pErr } = await supabase
+        .from('profiles')
+        .insert(newProfile);
+      
+      if (pErr) throw pErr;
 
       // 2. Link profile ID in user document
-      await setDoc(doc(db, 'users', currentUser.id), {
-        assigned_profile_id: newPid
-      }, { merge: true });
+      const { error: uErr } = await supabase
+        .from('users')
+        .update({
+          assigned_profile_id: newPid
+        })
+        .eq('id', currentUser.id);
 
-      // Local states will resolve automatically via active Firebase live-snapshots
+      if (uErr) {
+        console.warn('Failed to update users.assigned_profile_id. Checking if user exists in table users.');
+        
+        // Let's check if the user is missing in the public users database
+        const { data: checkUser, error: checkErr } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', currentUser.id)
+          .maybeSingle();
+          
+        if (!checkUser) {
+          console.info('User is missing in the public users table. Registering them now...');
+          const { error: insertUserErr } = await supabase
+            .from('users')
+            .insert({
+              id: currentUser.id,
+              username: currentUser.username,
+              is_admin: currentUser.is_admin,
+              assigned_profile_id: newPid,
+              created_at: currentUser.created_at || new Date().toISOString()
+            });
+            
+          if (insertUserErr) throw insertUserErr;
+        } else {
+          throw uErr;
+        }
+      }
+
+      // Update local states
       setActiveProfile(newProfile);
-    } catch (err) {
-      console.error('Failed to create onboarding couple profile:', err);
+      setCurrentUser({
+        ...currentUser,
+        assigned_profile_id: newPid
+      });
+    } catch (err: any) {
+      console.error('Failed to create onboarding couple profile in Supabase:', err);
+      setObSetupError(
+        err?.message || 
+        err?.details || 
+        String(err) || 
+        'Erro desconhecido ao tentar registrar dados no banco de dados. Por favor, verifique suas permissões de tabela no Supabase.'
+      );
+    } finally {
+      setObSetupSubmitting(false);
     }
   };
 
@@ -155,7 +250,7 @@ export default function App() {
         setActiveTab('tempo');
         return;
       }
-      await signOut(auth);
+      await supabase.auth.signOut();
       setCurrentUser(null);
       setActiveProfile(null);
       setActiveTab('tempo');
@@ -199,7 +294,7 @@ export default function App() {
     return (
       <div className="min-h-screen bg-rose-50/20 flex flex-col items-center justify-center space-y-4">
         <span className="text-4xl animate-spin">🌸</span>
-        <p className="text-xs text-gray-400 font-mono uppercase tracking-wider">Conectando ao Firebase...</p>
+        <p className="text-xs text-gray-400 font-mono uppercase tracking-wider">Conectando ao Supabase...</p>
       </div>
     );
   }
@@ -233,7 +328,7 @@ export default function App() {
               setActiveProfile(null);
               setIsShowLogin(true);
             }} 
-            className="bg-white text-rose-600 px-3 py-1 rounded-full text-[10px] uppercase font-black tracking-wider transition hover:bg-neutral-100 cursor-pointer shadow-xs"
+            className="bg-white text-rose-600 px-3 py-1 rounded-full text-[10px] uppercase font-black tracking-wider transition hover:bg-neutral-100 cursor-pointer shadow-xs font-serif"
           >
             Criar Perfil Original ✨
           </button>
@@ -245,13 +340,13 @@ export default function App() {
 
       {/* Main navigation header */}
       <header className="border-b border-gray-100 bg-white/80 backdrop-blur-md sticky top-0 z-30 transition">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex justify-between items-center">
+        <div className="max-w-5xl mx-auto px-4 py-3 flex justify-between items-center animate-duration-300">
           <div className="flex items-center gap-2">
             <span className="text-2xl animate-spin-slow">🌸</span>
             <div>
-              <span className="font-serif font-bold text-lg text-gray-800 tracking-tight block">FlowerLove</span>
+              <span className="font-serif font-bold text-lg text-gray-800 tracking-tight block cursor-default">FlowerLove</span>
               {currentUser && (
-                <span className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider block">
+                <span className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider block cursor-default">
                   Olá, {currentUser.username}! 👋
                 </span>
               )}
@@ -289,7 +384,7 @@ export default function App() {
       <main className="max-w-5xl mx-auto px-4 pt-6 md:pt-10 relative z-15">
         
         {!currentUser ? (
-          <div className="flex flex-col items-center justify-center pt-8 animate-fade-in">
+          <div className="flex flex-col items-center justify-center pt-8 animate-fade-in animate-duration-300">
             <button 
               onClick={() => setIsShowLogin(false)} 
               className="text-xs font-semibold text-rose-500 hover:text-rose-600 transition mb-6 focus:outline-none flex items-center gap-1.5 cursor-pointer bg-white px-5 py-2.5 rounded-full border border-rose-100 shadow-xs hover:shadow-sm"
@@ -300,12 +395,98 @@ export default function App() {
           </div>
         ) : !activeProfile ? (
           /* Profile onboarding form if user register successfully but has no profile */
-          <div className="max-w-md mx-auto bg-white/95 rounded-3xl p-6 md:p-8 border border-gray-100 shadow-xl animate-fade-in space-y-5">
+          <div className="max-w-md mx-auto bg-white/95 rounded-3xl p-6 md:p-8 border border-gray-100 shadow-xl animate-fade-in space-y-5 animate-duration-300">
             <div className="text-center">
               <span className="text-4xl">👩‍❤️‍👨</span>
               <h2 className="text-xl font-serif font-bold text-gray-850 mt-3">Configure seu Perfil de Casal</h2>
               <p className="text-xs text-gray-400 mt-1">Insira as informações básicas para iniciar sua galeria e contador de tempo</p>
             </div>
+
+            {obSetupError && (
+              <div className="bg-rose-50 text-rose-600 border border-rose-100 rounded-2xl p-3.5 text-xs text-left leading-relaxed space-y-2.5 font-sans animate-fade-in">
+                <div className="flex items-center gap-1.5 font-bold">
+                  <span>🛑</span>
+                  <span>Erro ao configurar casal:</span>
+                </div>
+                <p className="select-all break-all bg-white/80 p-2 rounded border border-rose-100/50 font-mono text-[10px]">
+                  {obSetupError}
+                </p>
+                
+                {obSetupError.toLowerCase().includes('row-level security') || obSetupError.toLowerCase().includes('security policy') ? (
+                  <div className="border-t border-rose-100/50 pt-2 space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowRlsGuide(!showRlsGuide)}
+                      className="w-full flex items-center justify-between font-bold text-rose-700 hover:text-rose-800 transition cursor-pointer text-[11px]"
+                    >
+                      <span>💡 Como resolver este erro RLS no Supabase</span>
+                      <span>{showRlsGuide ? '▲' : '▼'}</span>
+                    </button>
+                    
+                    {showRlsGuide && (
+                      <div className="space-y-2 pt-1 text-[11px] text-gray-700 leading-relaxed bg-white p-3 rounded-xl border border-rose-100/30">
+                        <p>
+                          Este erro ocorre porque você habilitou o <strong>Row-Level Security (RLS)</strong> no Supabase, mas ainda não criou as regras/políticas públicas que autorizam as gravações no banco.
+                        </p>
+                        <p className="font-bold text-slate-800">Siga estes simples passos para consertar:</p>
+                        <ol className="list-decimal pl-4 space-y-1">
+                          <li>Acesse o <a href="https://supabase.com/dashboard" target="_blank" rel="noopener noreferrer" className="text-rose-500 font-bold hover:underline">Painel do Supabase</a> e abra seu projeto.</li>
+                          <li>Na lateral esquerda, clique em <strong>SQL Editor</strong> e depois em <strong>New Query</strong> (Nova Consulta).</li>
+                          <li>Copie e cole o código SQL abaixo no campo de texto:</li>
+                        </ol>
+                        
+                        <div className="relative group">
+                          <pre className="bg-slate-900 text-slate-100 p-2.5 rounded-lg text-[9px] font-mono select-all overflow-x-auto whitespace-pre leading-normal max-h-36">
+{`--- 1. Criar regras públicas de leitura/escrita para Perfis
+DROP POLICY IF EXISTS "Allow public select profiles" ON public.profiles;
+CREATE POLICY "Allow public select profiles" ON public.profiles FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Allow public insert profiles" ON public.profiles;
+CREATE POLICY "Allow public insert profiles" ON public.profiles FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow public update profiles" ON public.profiles;
+CREATE POLICY "Allow public update profiles" ON public.profiles FOR UPDATE USING (true);
+
+--- 2. Criar regras públicas de leitura/escrita para Usuários
+DROP POLICY IF EXISTS "Allow public select users" ON public.users;
+CREATE POLICY "Allow public select users" ON public.users FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Allow public insert users" ON public.users;
+CREATE POLICY "Allow public insert users" ON public.users FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow public update users" ON public.users;
+CREATE POLICY "Allow public update users" ON public.users FOR UPDATE USING (true);
+
+--- 3. Criar regras públicas para Lembranças (Memories)
+DROP POLICY IF EXISTS "Allow public select memories" ON public.memories;
+CREATE POLICY "Allow public select memories" ON public.memories FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Allow public insert memories" ON public.memories;
+CREATE POLICY "Allow public insert memories" ON public.memories FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow public update memories" ON public.memories;
+CREATE POLICY "Allow public update memories" ON public.memories FOR UPDATE USING (true);
+DROP POLICY IF EXISTS "Allow public delete memories" ON public.memories;
+CREATE POLICY "Allow public delete memories" ON public.memories FOR DELETE USING (true);
+
+--- 4. Criar regras públicas para Polaroids (Photos)
+DROP POLICY IF EXISTS "Allow public select photos" ON public.photos;
+CREATE POLICY "Allow public select photos" ON public.photos FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Allow public insert photos" ON public.photos;
+CREATE POLICY "Allow public insert photos" ON public.photos FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow public delete photos" ON public.photos;
+CREATE POLICY "Allow public delete photos" ON public.photos FOR DELETE USING (true);`}
+                          </pre>
+                        </div>
+                        
+                        <ol className="list-decimal pl-4 space-y-1 start-4">
+                          <li>Clique no botão azul <strong>Run</strong> (Executar) no canto superior direito do painel.</li>
+                          <li>Volte aqui no FlowerLove e clique em "Criar Meu Mural de Amor ✨"!</li>
+                        </ol>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-gray-500 font-medium">
+                    Se você acabou de configurar a sua conta do Supabase, certifique-se de que a estrutura das tabelas está correta e que você concessou acesso público (RLS) para leitura/gravação.
+                  </p>
+                )}
+              </div>
+            )}
 
             <form onSubmit={handleCreateOnboardingProfile} className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
@@ -317,7 +498,7 @@ export default function App() {
                     value={obSetupName1}
                     onChange={(e) => setObSetupName1(e.target.value)}
                     placeholder="Ex: Pedro"
-                    className="w-full text-xs border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-pink-100"
+                    className="w-full text-xs border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-pink-100 cursor-pointer"
                   />
                 </div>
                 <div className="space-y-1">
@@ -328,7 +509,7 @@ export default function App() {
                     value={obSetupName2}
                     onChange={(e) => setObSetupName2(e.target.value)}
                     placeholder="Ex: Sofia"
-                    className="w-full text-xs border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-pink-100"
+                    className="w-full text-xs border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-pink-100 cursor-pointer"
                   />
                 </div>
               </div>
@@ -340,7 +521,7 @@ export default function App() {
                   required
                   value={obSetupStartDate}
                   onChange={(e) => setObSetupStartDate(e.target.value)}
-                  className="w-full text-xs border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-pink-100"
+                  className="w-full text-xs border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-pink-100 cursor-pointer"
                 />
               </div>
 
@@ -350,16 +531,16 @@ export default function App() {
                   {[
                     { id: 'pink', name: 'Rosa ❤️', color: 'bg-rose-500' },
                     { id: 'purple', name: 'Roxo 🔮', color: 'bg-purple-500' },
-                    { id: 'green', name: 'Verde 🍃', color: 'bg-emerald-505' }
+                    { id: 'green', name: 'Verde 🍃', color: 'bg-emerald-500' }
                   ].map((themeOpt) => (
                     <button
                       key={themeOpt.id}
                       type="button"
                       onClick={() => setObSetupTheme(themeOpt.id as LoveTheme)}
-                      className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg border text-xs transition ${
+                      className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg border text-xs transition cursor-pointer ${
                         obSetupTheme === themeOpt.id
                           ? 'border-gray-900 bg-gray-50 font-semibold text-gray-900'
-                          : 'border-gray-200 bg-white text-gray-505'
+                          : 'border-gray-200 bg-white text-gray-500 hover:text-gray-700'
                       }`}
                     >
                       <span className={`w-2.5 h-2.5 rounded-full ${themeOpt.color}`} />
@@ -371,15 +552,16 @@ export default function App() {
 
               <button
                 type="submit"
-                className="w-full bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white py-2 rounded-xl text-sm font-semibold transition cursor-pointer"
+                disabled={obSetupSubmitting}
+                className="w-full bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white py-2.5 rounded-xl text-xs font-semibold font-serif transition cursor-pointer shadow-xs disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Criar Meu Mural de Amor ✨
+                {obSetupSubmitting ? 'Criando Mural...' : 'Criar Meu Mural de Amor ✨'}
               </button>
             </form>
           </div>
         ) : (
           /* Main application interface */
-          <div className="space-y-8 animate-fade-in">
+          <div className="space-y-8 animate-fade-in animate-duration-350">
             
             {/* Quick Hero Banner visual card with couple profiles */}
             <div className="bg-white rounded-3xl border border-gray-100 p-5 md:p-6 shadow-sm flex flex-col md:flex-row items-center gap-5 relative overflow-hidden">
@@ -401,11 +583,11 @@ export default function App() {
                   Nosso espaço romântico seguro e privativo
                 </p>
                 <div className="mt-2.5 flex flex-wrap gap-1.5 justify-center md:justify-start">
-                  <span className="bg-rose-50 text-rose-600 text-[10px] font-bold px-2.5 py-0.5 rounded-full">
+                  <span className="bg-rose-50 text-rose-600 text-[10px] font-bold px-2.5 py-0.5 rounded-full select-none">
                     💝 Casal Ativo
                   </span>
-                  <span className="bg-emerald-50 text-emerald-600 text-[10px] font-bold px-2.5 py-0.5 rounded-full">
-                    ☁️ Sincronizado Firebase
+                  <span className="bg-emerald-50 text-emerald-600 text-[10px] font-bold px-2.5 py-0.5 rounded-full select-none">
+                    ☁️ Sincronizado Supabase
                   </span>
                 </div>
               </div>
@@ -428,7 +610,7 @@ export default function App() {
                       onClick={() => setActiveTab(tabItem.id as any)}
                       id={`tab-btn-${tabItem.id}`}
                       className={`text-xs font-semibold py-2 px-3.5 rounded-xl transition cursor-pointer select-none ${
-                        isActive ? getActiveTabStyles() : 'text-gray-500 hover:text-gray-755'
+                        isActive ? getActiveTabStyles() : 'text-gray-500 hover:text-gray-700'
                       }`}
                     >
                       {tabItem.label}
@@ -445,7 +627,7 @@ export default function App() {
                   <TimeCounter profile={activeProfile} />
 
                   {/* Wedding anniversary informational bento block */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2 animate-fade-in animate-duration-300">
                     
                     {/* List of Bodas/Anniversaries */}
                     <div className="border border-gray-100 rounded-2xl p-5 space-y-4">
@@ -454,7 +636,7 @@ export default function App() {
                         {[1, 2, 3, 4, 5, 8, 10, 15, 25, 50].map((years) => {
                           const itemSymbol = getWeddingAnniversarySymbol(years);
                           return (
-                            <div key={years} className="flex justify-between items-center text-xs py-1.5 border-b border-gray-50">
+                            <div key={years} className="flex justify-between items-center text-xs py-1.5 border-b border-gray-50 select-none">
                               <span className="font-semibold text-gray-700 flex items-center gap-1.5">
                                 <span>{itemSymbol.symbol}</span>
                                 <span>{years} {years === 1 ? 'Ano' : 'Anos'}: {itemSymbol.name}</span>

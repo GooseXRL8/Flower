@@ -4,8 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { doc, updateDoc } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../utils/firebase';
+import { supabase, handleSupabaseError, SupabaseOperationType } from '../utils/supabase';
 import { Profile } from '../types';
 import { ThemeSwitcher } from './ThemeSwitcher';
 
@@ -23,6 +22,7 @@ export function SettingsTab({ profile, onProfileUpdated }: SettingsTabProps) {
   const [theme, setTheme] = useState(profile.theme);
   const [success, setSuccess] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
   const themeColors = {
     pink: {
@@ -42,6 +42,7 @@ export function SettingsTab({ profile, onProfileUpdated }: SettingsTabProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSuccess(false);
+    setError('');
     setSaving(true);
 
     const updatedProfile: Profile = {
@@ -55,15 +56,19 @@ export function SettingsTab({ profile, onProfileUpdated }: SettingsTabProps) {
     };
 
     try {
-      const profileRef = doc(db, 'profiles', profile.id);
-      await updateDoc(profileRef, {
-        name1: updatedProfile.name1,
-        name2: updatedProfile.name2,
-        start_date: updatedProfile.start_date,
-        custom_title: updatedProfile.custom_title || null,
-        image_url: updatedProfile.image_url || null,
-        theme: updatedProfile.theme,
-      });
+      const { error: updateErr } = await supabase
+        .from('profiles')
+        .update({
+          name1: updatedProfile.name1,
+          name2: updatedProfile.name2,
+          start_date: updatedProfile.start_date,
+          custom_title: updatedProfile.custom_title || null,
+          image_url: updatedProfile.image_url || null,
+          theme: updatedProfile.theme,
+        })
+        .eq('id', profile.id);
+
+      if (updateErr) throw updateErr;
 
       onProfileUpdated(updatedProfile);
       
@@ -75,8 +80,9 @@ export function SettingsTab({ profile, onProfileUpdated }: SettingsTabProps) {
 
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3050);
-    } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, 'profiles/' + profile.id);
+    } catch (err: any) {
+      console.error('Failed to update settings in Supabase:', err);
+      setError('Não foi possível salvar as novos configurações no Supabase: ' + (err.message || String(err)));
     } finally {
       setSaving(false);
     }
@@ -95,6 +101,12 @@ export function SettingsTab({ profile, onProfileUpdated }: SettingsTabProps) {
         </div>
       )}
 
+      {error && (
+        <div className="bg-rose-50 text-rose-600 border border-rose-100 rounded-xl p-3 text-xs font-semibold animate-pulse-soft">
+          ⚠️ {error}
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="space-y-5">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-1">
@@ -104,7 +116,7 @@ export function SettingsTab({ profile, onProfileUpdated }: SettingsTabProps) {
               required
               value={name1}
               onChange={(e) => setName1(e.target.value)}
-              className={`w-full text-sm border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 ${themeColors.ring}`}
+              className={`w-full text-sm border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 ${themeColors.ring} cursor-pointer`}
               placeholder="Ex: Pedro"
             />
           </div>
@@ -116,7 +128,7 @@ export function SettingsTab({ profile, onProfileUpdated }: SettingsTabProps) {
               required
               value={name2}
               onChange={(e) => setName2(e.target.value)}
-              className={`w-full text-sm border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 ${themeColors.ring}`}
+              className={`w-full text-sm border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 ${themeColors.ring} cursor-pointer`}
               placeholder="Ex: Sofia"
             />
           </div>
@@ -130,7 +142,7 @@ export function SettingsTab({ profile, onProfileUpdated }: SettingsTabProps) {
               required
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className={`w-full text-sm border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 ${themeColors.ring}`}
+              className={`w-full text-sm border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 ${themeColors.ring} cursor-pointer`}
             />
             <span className="text-[10px] text-gray-400 mt-0.5 block">Usado para calcular a quantidade exata de dias juntos.</span>
           </div>
@@ -141,7 +153,7 @@ export function SettingsTab({ profile, onProfileUpdated }: SettingsTabProps) {
               type="text"
               value={customTitle}
               onChange={(e) => setCustomTitle(e.target.value)}
-              className={`w-full text-sm border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 ${themeColors.ring}`}
+              className={`w-full text-sm border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 ${themeColors.ring} cursor-pointer`}
               placeholder="Ex: Nossa eternidade juntos"
             />
           </div>
@@ -153,7 +165,7 @@ export function SettingsTab({ profile, onProfileUpdated }: SettingsTabProps) {
             type="url"
             value={imageUrl}
             onChange={(e) => setImageUrl(e.target.value)}
-            className={`w-full text-sm border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 ${themeColors.ring}`}
+            className={`w-full text-sm border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 ${themeColors.ring} cursor-pointer`}
             placeholder="Ex: https://images.unsplash.com/your-pair-image..."
           />
         </div>

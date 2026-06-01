@@ -4,8 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { collection, onSnapshot, doc, deleteDoc, setDoc } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../utils/firebase';
+import { supabase, handleSupabaseError, SupabaseOperationType, generateUUID } from '../utils/supabase';
 import { User, Profile } from '../types';
 import { ConfirmModal } from './ConfirmModal';
 
@@ -20,50 +19,40 @@ export function AdminTab({ currentUser }: AdminTabProps) {
   
   // Registration simulator inside admin
   const [newUsername, setNewUsername] = useState('');
-  const [newPassword, setNewPassword] = useState(''); // Visual block as Firestore uses OAuth, kept safely for UI compatibility
+  const [newPassword, setNewPassword] = useState(''); // Visual block as Supabase uses register inputs, kept safely for UI compatibility
   const [newIsAdmin, setNewIsAdmin] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [userToDelete, setUserToDelete] = useState<{ id: string; username: string } | null>(null);
 
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      // Fetch all users
+      const { data: userData, error: userErr } = await supabase
+        .from('users')
+        .select('*');
+      if (userErr) throw userErr;
+
+      // Fetch all profiles
+      const { data: profileData, error: profileErr } = await supabase
+        .from('profiles')
+        .select('*');
+      if (profileErr) throw profileErr;
+
+      setUsers((userData || []) as User[]);
+      setProfiles((profileData || []) as Profile[]);
+      setError('');
+    } catch (err: any) {
+      console.error('Error loading admin data:', err);
+      setError('Falha ao carregar lista de usuários/perfis: ' + (err.message || String(err)));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    // Standard real-time listeners for Admin users
-    const usersPath = 'users';
-    const profilesPath = 'profiles';
-
-    const unsubUsers = onSnapshot(
-      collection(db, usersPath),
-      (snapshot) => {
-        const uList: User[] = [];
-        snapshot.forEach((d) => {
-          uList.push(d.data() as User);
-        });
-        setUsers(uList);
-        setLoading(false);
-      },
-      (err) => {
-        handleFirestoreError(err, OperationType.LIST, usersPath);
-      }
-    );
-
-    const unsubProfiles = onSnapshot(
-      collection(db, profilesPath),
-      (snapshot) => {
-        const pList: Profile[] = [];
-        snapshot.forEach((d) => {
-          pList.push(d.data() as Profile);
-        });
-        setProfiles(pList);
-      },
-      (err) => {
-        handleFirestoreError(err, OperationType.LIST, profilesPath);
-      }
-    );
-
-    return () => {
-      unsubUsers();
-      unsubProfiles();
-    };
+    loadData();
   }, []);
 
   const handleDeleteUser = (id: string, username: string) => {
@@ -81,53 +70,66 @@ export function AdminTab({ currentUser }: AdminTabProps) {
     setError('');
     setSuccess('');
 
-    const trimmedUser = newUsername.trim().toLowerCase();
+    const trimmedUser = newUsername.trim();
     if (!trimmedUser) {
       setError('Por favor, preencha o nome de usuário.');
       return;
     }
 
-    const matchedUser = users.find((u) => u.username.toLowerCase() === trimmedUser);
+    const matchedUser = users.find((u) => u.username.toLowerCase() === trimmedUser.toLowerCase());
     if (matchedUser) {
       setError('Este nome de usuário já está sendo utilizado.');
       return;
     }
 
-    // Fabricate unique random records in Firebase database
-    const createdUserId = 'u_' + Math.random().toString(36).substring(2, 11);
-    const pId = 'p_' + Math.random().toString(36).substring(2, 11);
+    // Fabricate unique random records in Supabase database
+    const createdUserId = generateUUID();
+    const pId = generateUUID();
 
     const newProfile: Profile = {
       id: pId,
-      name1: newUsername.trim(),
-      name2: 'Amor de ' + newUsername.trim(),
+      name1: trimmedUser,
+      name2: 'Amor de ' + trimmedUser,
       created_by: createdUserId,
       start_date: new Date().toISOString().split('T')[0],
-      custom_title: `História de ${newUsername.trim()} & Amor`,
+      custom_title: `História de ${trimmedUser} & Amor`,
       theme: 'pink',
       created_at: new Date().toISOString()
     };
 
     const newUser: User = {
       id: createdUserId,
-      username: newUsername.trim(),
+      username: trimmedUser,
       is_admin: newIsAdmin,
       assigned_profile_id: pId,
       created_at: new Date().toISOString(),
     };
 
     try {
-      // Save profile & user atomic references inside Firestore!
-      await setDoc(doc(db, 'profiles', pId), newProfile);
-      await setDoc(doc(db, 'users', createdUserId), newUser);
+      // Save profile in Supabase table
+      const { error: profileErr } = await supabase
+        .from('profiles')
+        .insert(newProfile);
+      if (profileErr) throw profileErr;
+
+      // Save user in Supabase table
+      const { error: userErr } = await supabase
+        .from('users')
+        .insert(newUser);
+      if (userErr) throw userErr;
 
       setNewUsername('');
       setNewPassword('');
       setNewIsAdmin(false);
-      setSuccess(`Usuário ${newUser.username} cadastrado com sucesso com perfil integrado no Firestore!`);
+      setSuccess(`Usuário ${newUser.username} cadastrado com sucesso com perfil integrado no Supabase!`);
+      
+      // Reload admin views
+      await loadData();
+      
       setTimeout(() => setSuccess(''), 3505);
-    } catch (err) {
-      setError('Falha ao registrar usuário: ' + (err instanceof Error ? err.message : String(err)));
+    } catch (err: any) {
+      console.error('Error manual account registration:', err);
+      setError('Falha ao registrar usuário: ' + (err.message || String(err)));
     }
   };
 
@@ -217,7 +219,7 @@ export function AdminTab({ currentUser }: AdminTabProps) {
                   value={newUsername}
                   onChange={(e) => setNewUsername(e.target.value)}
                   placeholder="Ex: julia"
-                  className="w-full text-xs border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-pink-100"
+                  className="w-full text-xs border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-pink-100 cursor-pointer"
                 />
               </div>
 
@@ -239,14 +241,14 @@ export function AdminTab({ currentUser }: AdminTabProps) {
                   onChange={(e) => setNewIsAdmin(e.target.checked)}
                   className="w-3.5 h-3.5 text-rose-500 border-gray-300 focus:ring-rose-200 rounded-sm"
                 />
-                <label htmlFor="check-admin" className="text-xs font-semibold text-gray-600 select-none cursor-pointer">
+                <label htmlFor="check-admin" className="text-xs font-semibold text-gray-600 select-none cursor-pointer font-serif">
                   Dar privilégios de Administrador
                 </label>
               </div>
 
               <button
                 type="submit"
-                className="w-full bg-slate-800 hover:bg-slate-900 text-white font-semibold text-xs py-2 rounded-xl transition shadow-xs cursor-pointer"
+                className="w-full bg-slate-800 hover:bg-slate-900 text-white font-semibold text-xs py-2 rounded-xl transition shadow-xs cursor-pointer font-serif"
               >
                 Criar Conta e Perfil
               </button>
@@ -263,11 +265,19 @@ export function AdminTab({ currentUser }: AdminTabProps) {
           if (!userToDelete) return;
           const { id, username } = userToDelete;
           try {
-            await deleteDoc(doc(db, 'users', id));
-            setSuccess(`Usuário "${username}" foi excluído com sucesso do Firestore.`);
+            const { error: delErr } = await supabase
+              .from('users')
+              .delete()
+              .eq('id', id);
+            
+            if (delErr) throw delErr;
+
+            setSuccess(`Usuário "${username}" foi excluído com sucesso do Supabase.`);
+            await loadData();
             setTimeout(() => setSuccess(''), 4000);
-          } catch (err) {
-            handleFirestoreError(err, OperationType.DELETE, 'users/' + id);
+          } catch (err: any) {
+            console.error('Failed to delete user:', err);
+            setError('Falha ao apagar usuário: ' + (err.message || String(err)));
           }
         }}
         title="Excluir Usuário?"
