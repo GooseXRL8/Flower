@@ -1,0 +1,6 @@
+{
+  "name": "FlowerLove",
+  "description": "A beautiful romantic application for couples to track their time together, save milestones, share memories, and curate a joint photo gallery.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

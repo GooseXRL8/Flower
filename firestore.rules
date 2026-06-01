@@ -1,0 +1,262 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net default catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // -------------------------------------------------------------
+    // Global Security Helper Primitives
+    // -------------------------------------------------------------
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn();
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Checking if current user is an administrator
+    function isAdmin() {
+      return isSignedIn() && 
+             request.auth.token.email == 'joaotitua@gmail.com';
+    }
+
+    // Checking profile relationship context
+    function isAssociatedWithProfile(profileId) {
+      return isAdmin() || 
+             (exists(/databases/$(database)/documents/profiles/$(profileId)) && (
+               get(/databases/$(database)/documents/profiles/$(profileId)).data.created_by == request.auth.uid || 
+               (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+                get(/databases/$(database)/documents/users/$(request.auth.uid)).data.assigned_profile_id == profileId)
+             ));
+    }
+
+    // Checking couple collaboration context
+    function isSameCoupleSpace(photoUserId) {
+      return photoUserId == request.auth.uid || (
+        exists(/databases/$(database)/documents/users/$(photoUserId)) &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(photoUserId)).data.assigned_profile_id is string &&
+        get(/databases/$(database)/documents/users/$(photoUserId)).data.assigned_profile_id == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.assigned_profile_id
+      );
+    }
+
+    // -------------------------------------------------------------
+    // Entity Schema Validation Helpers
+    // -------------------------------------------------------------
+
+    function isValidUser(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.username is string && data.username.size() >= 3 && data.username.size() <= 100 &&
+             data.is_admin is bool &&
+             (data.assigned_profile_id == null || (data.assigned_profile_id is string && data.assigned_profile_id.size() <= 128)) &&
+             data.created_at is string;
+    }
+
+    function isValidProfile(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.name1 is string && data.name1.size() > 0 && data.name1.size() <= 100 &&
+             data.name2 is string && data.name2.size() > 0 && data.name2.size() <= 100 &&
+             data.created_by is string && data.created_by.size() <= 128 &&
+             data.start_date is string && data.start_date.size() <= 20 &&
+             (!('custom_title' in data) || (data.custom_title is string && data.custom_title.size() <= 200)) &&
+             (!('image_url' in data) || (data.image_url is string && data.image_url.size() <= 10000)) &&
+             data.theme is string && (data.theme == 'pink' || data.theme == 'purple' || data.theme == 'green') &&
+             data.created_at is string;
+    }
+
+    function isValidMemory(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.profile_id is string && data.profile_id.size() <= 128 &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+             data.description is string && data.description.size() <= 5000 &&
+             data.memory_date is string && data.memory_date.size() <= 20 &&
+             (!('location' in data) || (data.location is string && data.location.size() <= 200)) &&
+             (!('image_url' in data) || (data.image_url is string && data.image_url.size() <= 10000)) &&
+             data.tags is list && data.tags.size() <= 20 &&
+             data.is_favorite is bool &&
+             data.created_at is string;
+    }
+
+    function isValidPhoto(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.user_id is string && data.user_id.size() <= 128 &&
+             data.profile_id is string && data.profile_id.size() <= 128 &&
+             data.owner_name is string && data.owner_name.size() > 0 && data.owner_name.size() <= 100 &&
+             data.url is string && data.url.size() > 0 && data.url.size() <= 10000 &&
+             data.created_at is string;
+    }
+
+    // -------------------------------------------------------------
+    // Collections
+    // -------------------------------------------------------------
+
+    // Users Collection
+    match /users/{userId} {
+      allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow list: if isSignedIn() && isAdmin();
+      
+      allow create: if isSignedIn() && 
+                       isEmailVerified() && 
+                       request.auth.uid == userId && 
+                       isValidId(userId) &&
+                       isValidUser(incoming());
+                       
+      allow update: if isSignedIn() && 
+                       isEmailVerified() && 
+                       request.auth.uid == userId && 
+                       incoming().id == existing().id && 
+                       incoming().is_admin == existing().is_admin && // Prevents self-promotion
+                       isValidUser(incoming());
+                       
+      allow delete: if isSignedIn() && 
+                       isEmailVerified() && 
+                       (request.auth.uid == userId || isAdmin());
+    }
+
+    // Profiles Collection
+    match /profiles/{profileId} {
+      allow get: if isSignedIn() && (
+        resource == null ||
+        resource.data.created_by == request.auth.uid || 
+        isAdmin() || 
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.assigned_profile_id == profileId)
+      );
+      
+      allow list: if isSignedIn() && isAdmin();
+
+      allow create: if isSignedIn() && 
+                       isEmailVerified() && 
+                       isValidId(profileId) && 
+                       isValidProfile(incoming()) && 
+                       incoming().created_by == request.auth.uid;
+
+      allow update: if isSignedIn() && 
+                       isEmailVerified() && 
+                       isAssociatedWithProfile(profileId) && 
+                       incoming().id == existing().id && 
+                       incoming().created_by == existing().created_by && 
+                       isValidProfile(incoming()) && (
+                         isAdmin() ||
+                         incoming().diff(existing()).affectedKeys().hasOnly(['name1', 'name2', 'start_date', 'custom_title', 'image_url', 'theme'])
+                       );
+
+      allow delete: if isSignedIn() && 
+                       isEmailVerified() && 
+                       (isAssociatedWithProfile(profileId) || isAdmin());
+    }
+
+    // Memories Collection
+    match /memories/{memoryId} {
+      allow get: if isSignedIn() && (
+        resource == null ||
+        isAdmin() || 
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         resource.data.profile_id == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.assigned_profile_id)
+      );
+      
+      allow list: if isSignedIn() && (
+        isAdmin() || 
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         (resource == null || resource.data.profile_id == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.assigned_profile_id))
+      );
+
+      allow create: if isSignedIn() && 
+                       isEmailVerified() && 
+                       isValidId(memoryId) && 
+                       isValidMemory(incoming()) && (
+                         isAdmin() || 
+                         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+                          incoming().profile_id == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.assigned_profile_id)
+                       );
+
+      allow update: if isSignedIn() && 
+                       isEmailVerified() && 
+                       isValidMemory(incoming()) && 
+                       incoming().id == existing().id && 
+                       incoming().profile_id == existing().profile_id && (
+                         isAdmin() || (
+                           exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+                           existing().profile_id == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.assigned_profile_id &&
+                           incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'memory_date', 'location', 'image_url', 'tags', 'is_favorite'])
+                         )
+                       );
+
+      allow delete: if isSignedIn() && 
+                       isEmailVerified() && (
+                         isAdmin() || (
+                           exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+                           existing().profile_id == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.assigned_profile_id
+                         )
+                       );
+    }
+
+    // Photos Collection
+    match /photos/{photoId} {
+      allow get: if isSignedIn() && 
+                    isValidId(photoId) && (
+                      isAdmin() || 
+                      (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+                       resource.data.profile_id == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.assigned_profile_id)
+                    );
+      
+      allow list: if isSignedIn() && (
+                    isAdmin() || 
+                    (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+                     (resource == null || resource.data.profile_id == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.assigned_profile_id))
+                  );
+
+      allow create: if isSignedIn() && 
+                       isEmailVerified() && 
+                       isValidId(photoId) && 
+                       isValidPhoto(incoming()) && 
+                       incoming().user_id == request.auth.uid && (
+                         isAdmin() || (
+                           exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+                           incoming().profile_id == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.assigned_profile_id
+                         )
+                       );
+
+      allow update: if isSignedIn() && 
+                       isEmailVerified() && 
+                       isValidId(photoId) && 
+                       isValidPhoto(incoming()) && 
+                       incoming().id == existing().id && 
+                       incoming().profile_id == existing().profile_id && 
+                       incoming().user_id == request.auth.uid && 
+                       existing().user_id == request.auth.uid && (
+                         isAdmin() || (
+                           exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+                           incoming().profile_id == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.assigned_profile_id
+                         )
+                       ) && 
+                       incoming().diff(existing()).affectedKeys().hasOnly(['owner_name', 'url']);
+
+      allow delete: if isSignedIn() && 
+                       isEmailVerified() && 
+                       isValidId(photoId) && (
+                         isAdmin() || 
+                         existing().user_id == request.auth.uid ||
+                         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+                          existing().profile_id == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.assigned_profile_id)
+                       );
+    }
+  }
+}

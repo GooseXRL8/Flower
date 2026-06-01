@@ -1,0 +1,104 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400..900;1,400..900&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Playfair Display", Georgia, serif;
+  
+  --color-love-pink: hsl(338, 80%, 65%);
+  --color-love-pink-light: hsl(338, 80%, 95%);
+  --color-love-pink-deep: #2c151c;
+  
+  --color-love-purple: oklch(0.62 0.23 295);
+  --color-love-purple-light: oklch(0.96 0.04 295);
+  --color-love-purple-deep: #1b0a1d;
+
+  --color-love-green: oklch(0.72 0.18 145);
+  --color-love-green-light: oklch(0.97 0.03 145);
+  --color-love-green-deep: #0a1f12;
+  
+  --animate-float-slow: float-slow 8s ease-in-out infinite;
+  --animate-float-mid: float-mid 6s ease-in-out infinite;
+  --animate-heart-beat: heart-beat 1.5s ease-in-out infinite;
+  --animate-pulse-soft: pulse-soft 3s ease-in-out infinite;
+}
+
+@keyframes float-slow {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-15px) rotate(4deg); }
+}
+@keyframes float-mid {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-8px) rotate(-3deg); }
+}
+@keyframes heart-beat {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.75; }
+}
+
+/* Beautiful blossom falling physics animation */
+@keyframes romantic-fall {
+  0% {
+    transform: translateY(-5vh) translateX(0px) rotate(0deg);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.7;
+  }
+  90% {
+    opacity: 0.7;
+  }
+  100% {
+    transform: translateY(105vh) translateX(120px) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+/* Custom global styles for romantic theme */
+body {
+  font-family: var(--font-sans);
+  background-color: #fdfbf7; /* Tom creme claro */
+  color: #2c151c; /* Vinho escuro principal / quase preto */
+  overflow-x: hidden;
+  transition: background-color 0.5s ease, color 0.5s ease;
+}
+
+/* Theme configurations mapping to custom premium colors */
+.theme-pink {
+  --theme-primary: hsl(338, 80%, 65%);
+  --theme-primary-light: hsl(338, 80%, 93%);
+  --theme-primary-deep: #2c151c;
+  --theme-bg-gradient: linear-gradient(135deg, #fdfbf7 0%, #fff2f5 100%);
+}
+
+.theme-purple {
+  --theme-primary: hsl(280, 70%, 60%);
+  --theme-primary-light: hsl(280, 70%, 93%);
+  --theme-primary-deep: #1b0a1d;
+  --theme-bg-gradient: linear-gradient(135deg, #fdfbf7 0%, #faf2ff 100%);
+}
+
+.theme-green {
+  --theme-primary: hsl(140, 60%, 50%);
+  --theme-primary-light: hsl(140, 60%, 93%);
+  --theme-primary-deep: #0a1f12;
+  --theme-bg-gradient: linear-gradient(135deg, #fdfbf7 0%, #f0faf4 100%);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #ecdcc9;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #dfcaaf;
+}
