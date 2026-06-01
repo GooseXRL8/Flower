@@ -1,5 +1,12 @@
 import React from 'react';
+import { motion, useScroll, useTransform } from 'motion/react';
 import { SafeImage } from './SafeImage';
+import { normalizeImageUrl } from '../utils/supabase';
+
+// Caminhos das imagens decorativas do Hero.
+// Usamos a função normalizeImageUrl para garantir que links do Google Drive, Dropbox, Pinterest etc. convertam em imagens renderizáveis diretas!
+const HERO_BACKGROUND_SCENE = 'https://drive.google.com/file/d/1na7gxGGSa6zaELkzxwtj6DHf_h1tbBHK/view?usp=sharing'; // Paisagem ao fundo do Hero (colinas e árvore)
+const HERO_COUPLE_FLOWERS = 'https://drive.google.com/file/d/1cgm3bgoWFMTkfG2WZQ0l4pNVUJymjCP7/view?usp=sharing';    // Casal caminhando no gramado florido (silhueta)
 
 interface LandingPageProps {
   onEnterLogin: () => void;
@@ -7,6 +14,17 @@ interface LandingPageProps {
 }
 
 export function LandingPage({ onEnterLogin, onEnterDemo }: LandingPageProps) {
+  const { scrollY } = useScroll();
+
+  // Efeito parallax fluido e sutil para o background cenográfico (Layer 1)
+  const yBg = useTransform(scrollY, [0, 800], [0, 90]);
+  const scaleBg = useTransform(scrollY, [0, 800], [1, 1.06]);
+
+  // Efeito dinâmico de movimento e profundidade ao scrollar para o casal (Layer 2)
+  // O casal caminha ligeiramente para frente, para a esquerda e amplia de forma tridimensional no scroll
+  const yCouple = useTransform(scrollY, [0, 750], [0, -75]);
+  const xCouple = useTransform(scrollY, [0, 750], [0, -50]);
+  const scaleCouple = useTransform(scrollY, [0, 750], [1, 1.10]);
   return (
     <div className="min-h-screen bg-linear-to-b from-[#faf6f0] via-[#fffcf7] to-[#fff3f5] relative overflow-hidden flex flex-col justify-between">
       
@@ -32,8 +50,69 @@ export function LandingPage({ onEnterLogin, onEnterDemo }: LandingPageProps) {
       {/* Hero Content */}
       <main className="max-w-6xl mx-auto w-full px-6 py-8 md:py-16 grid grid-cols-1 lg:grid-cols-12 gap-12 items-center relative z-10 flex-1">
         
+        {/* Layer 1: Scenic Background Landscape (Dreamy Cherry Blossom & Hills) */}
+        <motion.div 
+          className="absolute inset-0 w-full h-full pointer-events-none select-none overflow-hidden opacity-30 lg:opacity-50 z-0"
+          style={{ y: yBg, scale: scaleBg }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 1.2, ease: 'easeOut' }}
+        >
+          <img
+            src={normalizeImageUrl(HERO_BACKGROUND_SCENE)}
+            alt="Paisagem romântica de fundo"
+            className="w-full h-full object-cover object-center blur-[0.5px]"
+            referrerPolicy="no-referrer"
+            onError={(e) => {
+              // Hide gracefully if image load fails
+              (e.target as HTMLElement).parentElement!.style.display = 'none';
+            }}
+          />
+          {/* Soft masking gradients to blend image seamlessly with the landing page background */}
+          <div className="absolute inset-0 bg-gradient-to-r from-[#faf6f0] via-[#faf6f0]/75 to-transparent block" />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#fffcf7] via-transparent to-[#faf6f0]/25" />
+        </motion.div>
+
+        {/* Layer 2: 3D Walking Couple Foreground (With dynamic scroll parallax and gentle breathing loop) */}
+        <motion.div 
+          className="absolute inset-0 w-full h-full pointer-events-none select-none overflow-hidden z-5 mix-blend-multiply opacity-55 sm:opacity-75 lg:opacity-95"
+          style={{ 
+            y: yCouple,
+            x: xCouple,
+            scale: scaleCouple
+          }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 1.0, ease: 'easeOut' }}
+        >
+          {/* Organic breathing loop separate from scroll parallax for high performance */}
+          <motion.div
+            className="w-full h-full"
+            animate={{ 
+              y: [0, -5, 0],
+              x: [0, 1.5, 0]
+            }}
+            transition={{ 
+              duration: 9, 
+              repeat: Infinity, 
+              ease: 'easeInOut' 
+              }}
+            >
+              <img
+                src={normalizeImageUrl(HERO_COUPLE_FLOWERS)}
+                alt="Casal caminhando no jardim de flores"
+                className="w-full h-full object-cover object-center filter drop-shadow-[0_12px_24px_rgba(244,63,94,0.05)]"
+                referrerPolicy="no-referrer"
+                onError={(e) => {
+                  // Fail gracefully if image is missing
+                  (e.target as HTMLElement).parentElement!.parentElement!.style.display = 'none';
+                }}
+              />
+            </motion.div>
+          </motion.div>
+
         {/* Left column text block */}
-        <div className="lg:col-span-7 space-y-6 text-center lg:text-left">
+        <div className="lg:col-span-7 space-y-6 text-center lg:text-left relative z-10">
           <div className="inline-flex items-center gap-2 bg-rose-50 border border-rose-100 px-3.5 py-1.5 rounded-full text-rose-650 text-xs font-semibold uppercase tracking-wider">
             <span>✨</span> Um espaço seguro e privativo para o casal
           </div>
@@ -68,27 +147,27 @@ export function LandingPage({ onEnterLogin, onEnterDemo }: LandingPageProps) {
           </div>
 
           {/* Social Proof trust badges */}
-          <div className="flex flex-wrap items-center justify-center lg:justify-start gap-x-6 gap-y-3 pt-6 text-[11px] text-gray-400 font-medium uppercase tracking-wider">
-            <span className="flex items-center gap-1.5">
-              <span className="text-rose-455 text-sm">📅</span> Contador Preciso
+          <div className="flex flex-wrap items-center justify-center lg:justify-start gap-x-6 gap-y-3 pt-6 text-[11px] font-medium uppercase tracking-wider">
+            <span className="flex items-center gap-1.5 text-white bg-black/15 px-3 py-1.5 rounded-full backdrop-blur-xs border border-white/10">
+              <span className="text-sm">📅</span> Contador Preciso
             </span>
-            <span className="flex items-center gap-1.5">
-              <span className="text-rose-455 text-sm">🔒</span> Seguro e Privativo
+            <span className="flex items-center gap-1.5 text-white bg-black/15 px-3 py-1.5 rounded-full backdrop-blur-xs border border-white/10">
+              <span className="text-sm">🔒</span> Seguro e Privativo
             </span>
-            <span className="flex items-center gap-1.5">
-              <span className="text-rose-455 text-sm">💝</span> Formato Polaroids
+            <span className="flex items-center gap-1.5 text-white bg-black/15 px-3 py-1.5 rounded-full backdrop-blur-xs border border-white/10">
+              <span className="text-sm">💝</span> Formato Polaroids
             </span>
           </div>
         </div>
 
         {/* Right column: Interactive Visual Showcase */}
-        <div className="lg:col-span-5 relative flex justify-center">
+        <div className="lg:col-span-5 relative flex justify-center min-h-[350px] lg:min-h-[450px]">
           
           {/* Aesthetic Background circle */}
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 rounded-full bg-gradient-to-tr from-rose-100/50 to-purple-100/50 blur-xl -z-10" />
 
           {/* Polaroid and cards overlap simulation */}
-          <div className="relative w-full max-w-sm space-y-4">
+          <div className="relative w-full max-w-sm space-y-4 z-10">
             
             {/* Memory Card mockup */}
             <div className="bg-white/90 backdrop-blur-md border border-white rounded-2xl p-4 shadow-xl transform -rotate-2 hover:-rotate-1 hover:scale-102 transition duration-300 relative z-20">
@@ -144,37 +223,37 @@ export function LandingPage({ onEnterLogin, onEnterDemo }: LandingPageProps) {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             
             {/* Benefit item 1 */}
-            <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition">
+            <div className="bg-[#ffd8f5] p-5 rounded-2xl border border-rose-200/50 shadow-sm hover:shadow-md transition">
               <span className="text-3xl">🕒</span>
-              <h3 className="text-sm font-bold text-gray-805 mt-3 mb-1">Contador em Tempo Real</h3>
-              <p className="text-xs text-gray-500 leading-relaxed">
+              <h3 className="text-sm font-bold text-gray-900 mt-3 mb-1">Contador em Tempo Real</h3>
+              <p className="text-xs text-gray-800 leading-relaxed">
                 Descubra a quantidade exata de anos, meses, dias, minutos e segundos passados ao lado do seu parceiro.
               </p>
             </div>
 
             {/* Benefit item 2 */}
-            <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition">
+            <div className="bg-[#ffd8f5] p-5 rounded-2xl border border-rose-200/50 shadow-sm hover:shadow-md transition">
               <span className="text-3xl">📖</span>
-              <h3 className="text-sm font-bold text-gray-850 mt-3 mb-1">Baú de Lembranças</h3>
-              <p className="text-xs text-gray-500 leading-relaxed">
+              <h3 className="text-sm font-bold text-gray-900 mt-3 mb-1">Baú de Lembranças</h3>
+              <p className="text-xs text-gray-800 leading-relaxed">
                 Guarde cada viagem, jantar romântico, passeio surpresa e piada interna marcando a data, local e fotos do dia.
               </p>
             </div>
 
             {/* Benefit item 3 */}
-            <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition">
+            <div className="bg-[#ffd8f5] p-5 rounded-2xl border border-rose-200/50 shadow-sm hover:shadow-md transition">
               <span className="text-3xl">📸</span>
-              <h3 className="text-sm font-bold text-gray-850 mt-3 mb-1">Mural de Polaroids</h3>
-              <p className="text-xs text-gray-500 leading-relaxed">
+              <h3 className="text-sm font-bold text-gray-900 mt-3 mb-1">Mural de Polaroids</h3>
+              <p className="text-xs text-gray-800 leading-relaxed">
                 Monte uma galeria vintage de registros memoráveis. Adicione suas fotos preferidas organizadas em formato polaroid.
               </p>
             </div>
 
             {/* Benefit item 4 */}
-            <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition">
+            <div className="bg-[#ffd8f5] p-5 rounded-2xl border border-rose-200/50 shadow-sm hover:shadow-md transition">
               <span className="text-3xl">🖨️</span>
-              <h3 className="text-sm font-bold text-gray-850 mt-3 mb-1">Cartões de Celebração</h3>
-              <p className="text-xs text-gray-500 leading-relaxed">
+              <h3 className="text-sm font-bold text-gray-900 mt-3 mb-1">Cartões de Celebração</h3>
+              <p className="text-xs text-gray-800 leading-relaxed">
                 Gere lindos cartões com mensagens de amor e o contador de tempo de vocês para compartilhar ou imprimir.
               </p>
             </div>
