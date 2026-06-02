@@ -4,11 +4,14 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { supabase, handleSupabaseError, SupabaseOperationType, normalizeImageUrl, generateUUID } from '../utils/supabase';
+import { supabase, normalizeImageUrl, generateUUID } from '../utils/supabase';
 import { ProfilePhoto, User, Profile } from '../types';
 import { SafeImage } from './SafeImage';
 import { DEMO_PHOTOS } from '../data/demoData';
 import { ConfirmModal } from './ConfirmModal';
+import { parseSupabaseError } from '../utils/errorMessages';
+import { ImageUrlGuide } from './ImageUrlGuide';
+import { LoadingSpinner } from './LoadingSpinner';
 
 interface ProfilePhotosGalleryProps {
   user: User;
@@ -81,7 +84,7 @@ export function ProfilePhotosGallery({ user, profile, isDemo = false }: ProfileP
       setError('');
     } catch (err: any) {
       console.error('List photos error from Supabase:', err);
-      setError('Não foi possível carregar as fotos do mural (erro de conexão com o Supabase).');
+      setError(parseSupabaseError(err));
     } finally {
       setLoading(false);
     }
@@ -89,6 +92,30 @@ export function ProfilePhotosGallery({ user, profile, isDemo = false }: ProfileP
 
   useEffect(() => {
     loadPhotos();
+
+    if (isDemo) return;
+
+    // Escutar por mudanças em tempo real na tabela de fotos
+    const channel = supabase
+      .channel(`photos-${profile.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'photos',
+          filter: `profile_id=eq.${profile.id}`,
+        },
+        (payload) => {
+          console.log('[Realtime] Mudança de foto no mural detectada:', payload.eventType);
+          loadPhotos();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [profile.id, isDemo]);
 
   const handleAddPhoto = async (e: React.FormEvent) => {
@@ -130,7 +157,7 @@ export function ProfilePhotosGallery({ user, profile, isDemo = false }: ProfileP
       await loadPhotos();
     } catch (err: any) {
       console.error('Error inserting photos in Supabase:', err);
-      setError('Falha ao adicionar a foto no Supabase: ' + (err.message || String(err)));
+      setError(parseSupabaseError(err));
     }
   };
 
@@ -153,10 +180,7 @@ export function ProfilePhotosGallery({ user, profile, isDemo = false }: ProfileP
 
       {loading ? (
         <div className="flex justify-center py-10">
-          <svg className="animate-spin h-6 w-6 text-rose-500" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-          </svg>
+          <LoadingSpinner size={24} color={themeColors.text} label="Carregando mural fotográfico..." />
         </div>
       ) : (
         <>
@@ -194,17 +218,6 @@ export function ProfilePhotosGallery({ user, profile, isDemo = false }: ProfileP
               {/* LIVE PREVIEW AND HELP BLOCK */}
               {inputUrl.trim() && (
                 <div className="border border-dashed border-gray-200 rounded-xl p-3 bg-white space-y-2.5 animate-fade-in text-left">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Visualização Prévia (Amostra)</span>
-                    <button
-                      type="button"
-                      onClick={() => setShowGuide(!showGuide)}
-                      className={`text-[10px] font-bold underline cursor-pointer hover:opacity-80 ${themeColors.text}`}
-                    >
-                      {showGuide ? 'Ocultar Dicas' : '❓ Como conseguir o link correto?'}
-                    </button>
-                  </div>
-
                   <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
                     {/* Compact Image sample frame */}
                     <div className="relative w-20 h-20 rounded-lg overflow-hidden bg-gray-50 border border-gray-100 flex-shrink-0 flex items-center justify-center">
@@ -234,7 +247,7 @@ export function ProfilePhotosGallery({ user, profile, isDemo = false }: ProfileP
                             <span>❌</span> Não foi possível carregar a imagem.
                           </p>
                           <p className="text-[10px] text-gray-500 leading-normal">
-                            Isso ocorre se o link não corresponder a uma imagem direta ou se for restrito. Clique no botão de dicas acima para saber como resolver!
+                            Isso ocorre se o link não corresponder a uma imagem direta ou se for restrito. Clique no link de dicas abaixo para saber como resolver!
                           </p>
                         </>
                       ) : (
@@ -251,30 +264,11 @@ export function ProfilePhotosGallery({ user, profile, isDemo = false }: ProfileP
                   </div>
 
                   {/* Expandable Image Guide */}
-                  {showGuide && (
-                    <div className="text-[11px] text-gray-600 space-y-2 bg-gray-50 p-3 rounded-xl border border-gray-100 leading-relaxed font-sans">
-                      <p className="font-bold text-gray-800">Guia Prático para Links de Imagens:</p>
-                      
-                      <div className="space-y-1.5 pl-1">
-                        <div>
-                          <p className="font-semibold text-gray-700">📌 Google Drive:</p>
-                          <p className="text-gray-500">No Drive, mude o compartilhamento para <strong>"Qualquer pessoa com o link" (Leitor)</strong>. Copie esse link e cole. Nós o convertemos automaticamente!</p>
-                        </div>
-                        <div>
-                          <p className="font-semibold text-gray-700">📌 Pinterest:</p>
-                          <p className="text-gray-500">Não copie o link da barra de endereços do navegador! Em vez disso, <strong>clique com o botão direito diretamente na imagem do Pinterest e selecione "Copiar endereço da imagem"</strong> (deve terminar em .jpg ou .png).</p>
-                        </div>
-                        <div>
-                          <p className="font-semibold text-gray-700">📌 Dropbox:</p>
-                          <p className="text-gray-500">Basta copiar o link padrão do compartilhamento público que nós cuidamos do resto para você.</p>
-                        </div>
-                        <div>
-                          <p className="font-semibold text-gray-700">📌 Imagens da Internet ou WhatsApp Web:</p>
-                          <p className="text-gray-500">Procure copiar o link direto terminando em extensões válidas (.jpg, .png, .webp). Links temporários do WhatsApp Web expirarão após algumas horas.</p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                  <ImageUrlGuide
+                    show={showGuide}
+                    onToggle={() => setShowGuide(!showGuide)}
+                    themeTextColor={themeColors.text}
+                  />
                 </div>
               )}
 
@@ -324,9 +318,10 @@ export function ProfilePhotosGallery({ user, profile, isDemo = false }: ProfileP
                     <button
                       onClick={() => handleDeletePhoto(photo.id)}
                       className="absolute top-2 right-2 bg-white/90 hover:bg-white text-rose-500 p-1.5 rounded-full shadow-xs cursor-pointer transition transform hover:scale-110 active:scale-95 z-25"
+                      aria-label="Deletar foto"
                       title="Remover Polaroid"
                     >
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                       </svg>
                     </button>
@@ -368,7 +363,7 @@ export function ProfilePhotosGallery({ user, profile, isDemo = false }: ProfileP
             await loadPhotos();
           } catch (err: any) {
             console.error('Delete photo Error in Supabase:', err);
-            setError('Não foi possível remover essa foto do Supabase: ' + (err.message || String(err)));
+            setError(parseSupabaseError(err));
           }
         }}
         title="Excluir Polaroid?"

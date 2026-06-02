@@ -57,57 +57,144 @@ ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.memories ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.photos ENABLE ROW LEVEL SECURITY;
 
--- 4. Create wide-open, permissive public access policies (No restrictions)
--- This lets authenticated, anonymous, and standard client requests perform simple Crud.
+-- 4. Create secure Row Level Security policies
 
--- Profiles Row Level Security Policies
+-- ============================================================
+-- PROFILES — acesso restrito por relacionamento
+-- ============================================================
 DROP POLICY IF EXISTS "Allow public select profiles" ON public.profiles;
-CREATE POLICY "Allow public select profiles" ON public.profiles FOR SELECT USING (true);
-
 DROP POLICY IF EXISTS "Allow public insert profiles" ON public.profiles;
-CREATE POLICY "Allow public insert profiles" ON public.profiles FOR INSERT WITH CHECK (true);
-
 DROP POLICY IF EXISTS "Allow public update profiles" ON public.profiles;
-CREATE POLICY "Allow public update profiles" ON public.profiles FOR UPDATE USING (true);
-
 DROP POLICY IF EXISTS "Allow public delete profiles" ON public.profiles;
-CREATE POLICY "Allow public delete profiles" ON public.profiles FOR DELETE USING (true);
 
--- Users Row Level Security Policies
+CREATE POLICY "Profiles: owner ou parceiro pode ler"
+  ON public.profiles FOR SELECT
+  USING (
+    auth.uid()::text = created_by
+    OR auth.uid()::text IN (
+      SELECT id FROM public.users WHERE assigned_profile_id = profiles.id
+    )
+  );
+
+CREATE POLICY "Profiles: usuario autenticado cria o proprio"
+  ON public.profiles FOR INSERT
+  WITH CHECK (auth.uid()::text = created_by);
+
+CREATE POLICY "Profiles: owner ou parceiro pode atualizar"
+  ON public.profiles FOR UPDATE
+  USING (
+    auth.uid()::text = created_by
+    OR auth.uid()::text IN (
+      SELECT id FROM public.users WHERE assigned_profile_id = profiles.id
+    )
+  );
+
+CREATE POLICY "Profiles: somente owner pode deletar"
+  ON public.profiles FOR DELETE
+  USING (auth.uid()::text = created_by);
+
+-- ============================================================
+-- USERS — cada usuario gerencia apenas seus proprios dados
+-- ============================================================
 DROP POLICY IF EXISTS "Allow public select users" ON public.users;
-CREATE POLICY "Allow public select users" ON public.users FOR SELECT USING (true);
-
 DROP POLICY IF EXISTS "Allow public insert users" ON public.users;
-CREATE POLICY "Allow public insert users" ON public.users FOR INSERT WITH CHECK (true);
-
 DROP POLICY IF EXISTS "Allow public update users" ON public.users;
-CREATE POLICY "Allow public update users" ON public.users FOR UPDATE USING (true);
-
 DROP POLICY IF EXISTS "Allow public delete users" ON public.users;
-CREATE POLICY "Allow public delete users" ON public.users FOR DELETE USING (true);
 
--- Memories Row Level Security Policies
+CREATE POLICY "Users: usuario le o proprio perfil ou do parceiro"
+  ON public.users FOR SELECT
+  USING (
+    auth.uid()::text = id
+    OR (
+      assigned_profile_id IS NOT NULL
+      AND assigned_profile_id IN (
+        SELECT assigned_profile_id FROM public.users WHERE id = auth.uid()::text
+      )
+    )
+  );
+
+CREATE POLICY "Users: usuario cria o proprio registro"
+  ON public.users FOR INSERT
+  WITH CHECK (auth.uid()::text = id);
+
+CREATE POLICY "Users: usuario atualiza apenas o proprio (sem promover a admin)"
+  ON public.users FOR UPDATE
+  USING (auth.uid()::text = id)
+  WITH CHECK (
+    auth.uid()::text = id
+    AND is_admin = (SELECT is_admin FROM public.users WHERE id = auth.uid()::text)
+  );
+
+-- ============================================================
+-- MEMORIES — restrito ao profile_id do usuario
+-- ============================================================
 DROP POLICY IF EXISTS "Allow public select memories" ON public.memories;
-CREATE POLICY "Allow public select memories" ON public.memories FOR SELECT USING (true);
-
 DROP POLICY IF EXISTS "Allow public insert memories" ON public.memories;
-CREATE POLICY "Allow public insert memories" ON public.memories FOR INSERT WITH CHECK (true);
-
 DROP POLICY IF EXISTS "Allow public update memories" ON public.memories;
-CREATE POLICY "Allow public update memories" ON public.memories FOR UPDATE USING (true);
-
 DROP POLICY IF EXISTS "Allow public delete memories" ON public.memories;
-CREATE POLICY "Allow public delete memories" ON public.memories FOR DELETE USING (true);
 
--- Photos Row Level Security Policies
+CREATE POLICY "Memories: usuario le memorias do seu perfil"
+  ON public.memories FOR SELECT
+  USING (
+    profile_id IN (
+      SELECT assigned_profile_id FROM public.users WHERE id = auth.uid()::text
+    )
+  );
+
+CREATE POLICY "Memories: usuario cria apenas no seu perfil"
+  ON public.memories FOR INSERT
+  WITH CHECK (
+    profile_id IN (
+      SELECT assigned_profile_id FROM public.users WHERE id = auth.uid()::text
+    )
+  );
+
+CREATE POLICY "Memories: usuario edita apenas memorias do seu perfil"
+  ON public.memories FOR UPDATE
+  USING (
+    profile_id IN (
+      SELECT assigned_profile_id FROM public.users WHERE id = auth.uid()::text
+    )
+  );
+
+CREATE POLICY "Memories: usuario deleta apenas do seu perfil"
+  ON public.memories FOR DELETE
+  USING (
+    profile_id IN (
+      SELECT assigned_profile_id FROM public.users WHERE id = auth.uid()::text
+    )
+  );
+
+-- ============================================================
+-- PHOTOS — restrito ao profile_id e ao user_id do autor
+-- ============================================================
 DROP POLICY IF EXISTS "Allow public select photos" ON public.photos;
-CREATE POLICY "Allow public select photos" ON public.photos FOR SELECT USING (true);
-
 DROP POLICY IF EXISTS "Allow public insert photos" ON public.photos;
-CREATE POLICY "Allow public insert photos" ON public.photos FOR INSERT WITH CHECK (true);
-
 DROP POLICY IF EXISTS "Allow public update photos" ON public.photos;
-CREATE POLICY "Allow public update photos" ON public.photos FOR UPDATE USING (true);
-
 DROP POLICY IF EXISTS "Allow public delete photos" ON public.photos;
-CREATE POLICY "Allow public delete photos" ON public.photos FOR DELETE USING (true);
+
+CREATE POLICY "Photos: usuario ve fotos do seu perfil"
+  ON public.photos FOR SELECT
+  USING (
+    profile_id IN (
+      SELECT assigned_profile_id FROM public.users WHERE id = auth.uid()::text
+    )
+  );
+
+CREATE POLICY "Photos: usuario insere com seu proprio user_id"
+  ON public.photos FOR INSERT
+  WITH CHECK (
+    auth.uid()::text = user_id
+    AND profile_id IN (
+      SELECT assigned_profile_id FROM public.users WHERE id = auth.uid()::text
+    )
+  );
+
+CREATE POLICY "Photos: usuario deleta apenas as proprias fotos ou do seu perfil"
+  ON public.photos FOR DELETE
+  USING (
+    auth.uid()::text = user_id
+    OR profile_id IN (
+      SELECT assigned_profile_id FROM public.users WHERE id = auth.uid()::text
+    )
+  );

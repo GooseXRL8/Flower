@@ -3,12 +3,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { supabase, safeParseTags, normalizeImageUrl, generateUUID } from '../utils/supabase';
 import { Memory, Profile } from '../types';
 import { SafeImage } from './SafeImage';
 import { DEMO_MEMORIES } from '../data/demoData';
 import { ConfirmModal } from './ConfirmModal';
+import { parseSupabaseError } from '../utils/errorMessages';
+import { ImageUrlGuide } from './ImageUrlGuide';
+import { LoadingSpinner } from './LoadingSpinner';
 
 interface MemoriesTabProps {
   profile: Profile;
@@ -99,7 +102,7 @@ export function MemoriesTab({ profile, isDemo = false }: MemoriesTabProps) {
       setError('');
     } catch (err: any) {
       console.error("List memories error in Supabase:", err);
-      setError("Não foi possível carregar as memórias (erro de conexão com o Supabase).");
+      setError(parseSupabaseError(err));
     } finally {
       setLoading(false);
     }
@@ -107,6 +110,30 @@ export function MemoriesTab({ profile, isDemo = false }: MemoriesTabProps) {
 
   useEffect(() => {
     loadMemories();
+
+    if (isDemo) return;
+
+    // Assinar mudanças em tempo real na tabela de memórias para ESC-03
+    const channel = supabase
+      .channel(`memories-${profile.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'memories',
+          filter: `profile_id=eq.${profile.id}`,
+        },
+        (payload) => {
+          console.log('[Realtime] Memória atualizada:', payload.eventType);
+          loadMemories();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [profile.id, isDemo]);
 
   const handleDelete = (id: string) => {
@@ -132,7 +159,7 @@ export function MemoriesTab({ profile, isDemo = false }: MemoriesTabProps) {
       await loadMemories();
     } catch (err: any) {
       console.error('Error toggling favorite memory in Supabase:', err);
-      setError('Erro ao marcar favorito no Supabase: ' + (err.message || String(err)));
+      setError(parseSupabaseError(err));
     }
   };
 
@@ -205,7 +232,7 @@ export function MemoriesTab({ profile, isDemo = false }: MemoriesTabProps) {
         await loadMemories();
       } catch (err: any) {
         console.error('Error rewriting memory in Supabase:', err);
-        setError('Falha ao atualizar a lembrança no Supabase: ' + (err.message || String(err)));
+        setError(parseSupabaseError(err));
       }
     } else {
       // Create mode
@@ -250,24 +277,26 @@ export function MemoriesTab({ profile, isDemo = false }: MemoriesTabProps) {
         await loadMemories();
       } catch (err: any) {
         console.error('Error inserting memories in Supabase:', err);
-        setError('Falha ao registrar a nova lembrança no Supabase: ' + (err.message || String(err)));
+        setError(parseSupabaseError(err));
       }
     }
 
     setIsFormOpen(false);
   };
 
-  const filteredMemories = memories.filter((m) => {
-    const matchesSearch =
-      m.title.toLowerCase().includes(search.toLowerCase()) ||
-      m.description.toLowerCase().includes(search.toLowerCase()) ||
-      (m.location && m.location.toLowerCase().includes(search.toLowerCase()));
-    
-    if (onlyFavorites) {
-      return m.is_favorite && matchesSearch;
-    }
-    return matchesSearch;
-  });
+  const filteredMemories = useMemo(() => {
+    return memories.filter((m) => {
+      const matchesSearch =
+        m.title.toLowerCase().includes(search.toLowerCase()) ||
+        m.description.toLowerCase().includes(search.toLowerCase()) ||
+        (m.location && m.location.toLowerCase().includes(search.toLowerCase()));
+      
+      if (onlyFavorites) {
+        return m.is_favorite && matchesSearch;
+      }
+      return matchesSearch;
+    });
+  }, [memories, search, onlyFavorites]);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -397,17 +426,6 @@ export function MemoriesTab({ profile, isDemo = false }: MemoriesTabProps) {
               {/* LIVE PREVIEW AND HELP BLOCK */}
               {imageUrl.trim() && (
                 <div className="border border-dashed border-gray-200 rounded-xl p-3 bg-white space-y-2.5 animate-fade-in text-left">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Visualização Prévia (Amostra)</span>
-                    <button
-                      type="button"
-                      onClick={() => setShowGuide(!showGuide)}
-                      className={`text-[10px] font-bold underline cursor-pointer hover:opacity-80 ${themeColors.text}`}
-                    >
-                      {showGuide ? 'Ocultar Dicas' : '❓ Como conseguir o link correto?'}
-                    </button>
-                  </div>
-
                   <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
                     {/* Compact Image sample frame */}
                     <div className="relative w-24 h-20 rounded-lg overflow-hidden bg-gray-50 border border-gray-100 flex-shrink-0 flex items-center justify-center">
@@ -437,7 +455,7 @@ export function MemoriesTab({ profile, isDemo = false }: MemoriesTabProps) {
                             <span>❌</span> Não foi possível carregar a imagem.
                           </p>
                           <p className="text-[10px] text-gray-500 leading-normal">
-                            Isso ocorre se o link não corresponder a uma imagem direta ou se for restrito. Clique no botão de dicas acima para saber como resolver!
+                            Isso ocorre se o link não corresponder a uma imagem direta ou se for restrito. Clique no botão de dicas abaixo para saber como resolver!
                           </p>
                         </>
                       ) : (
@@ -454,30 +472,11 @@ export function MemoriesTab({ profile, isDemo = false }: MemoriesTabProps) {
                   </div>
 
                   {/* Expandable Image Guide */}
-                  {showGuide && (
-                    <div className="text-[11px] text-gray-600 space-y-2 bg-gray-50 p-3 rounded-xl border border-gray-100 leading-relaxed font-sans">
-                      <p className="font-bold text-gray-800">Guia Prático para Links de Imagens:</p>
-                      
-                      <div className="space-y-1.5 pl-1">
-                        <div>
-                          <p className="font-semibold text-gray-700">📌 Google Drive:</p>
-                          <p className="text-gray-500 font-normal">No Drive, mude o compartilhamento para <strong>"Qualquer pessoa com o link" (Leitor)</strong>. Copie esse link e cole. Nós o convertemos automaticamente!</p>
-                        </div>
-                        <div>
-                          <p className="font-semibold text-gray-700">📌 Pinterest:</p>
-                          <p className="text-gray-500 font-normal">Não copie o link da barra de endereços do navegador! Em vez disso, <strong>clique com o botão direito diretamente na imagem do Pinterest e selecione "Copiar endereço da imagem"</strong> (deve terminar em .jpg ou .png).</p>
-                        </div>
-                        <div>
-                          <p className="font-semibold text-gray-700">📌 Dropbox:</p>
-                          <p className="text-gray-500 font-normal">Basta copiar o link padrão do compartilhamento público que nós cuidamos do resto para você.</p>
-                        </div>
-                        <div>
-                          <p className="font-semibold text-gray-700">📌 Imagens da Internet ou WhatsApp Web:</p>
-                          <p className="text-gray-500 font-normal">Procure copiar o link direto terminando em extensões válidas (.jpg, .png, .webp). Links temporários do WhatsApp Web expirarão após algumas horas.</p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                  <ImageUrlGuide
+                    show={showGuide}
+                    onToggle={() => setShowGuide(!showGuide)}
+                    themeTextColor={themeColors.text}
+                  />
                 </div>
               )}
 
@@ -527,10 +526,7 @@ export function MemoriesTab({ profile, isDemo = false }: MemoriesTabProps) {
 
       {loading ? (
         <div className="flex justify-center py-12">
-          <svg className="animate-spin h-6 w-6 text-rose-500" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-          </svg>
+          <LoadingSpinner size={24} color={themeColors.text} label="Carregando lembranças..." />
         </div>
       ) : (
         <>
@@ -610,9 +606,10 @@ export function MemoriesTab({ profile, isDemo = false }: MemoriesTabProps) {
                       className={`p-2 rounded-xl border hover:bg-gray-50 transition cursor-pointer ${
                         m.is_favorite ? 'border-rose-200 text-rose-500 bg-rose-50/20' : 'border-gray-200 text-gray-400'
                       }`}
+                      aria-label={m.is_favorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
                       title={m.is_favorite ? 'Desmarcar favorito' : 'Marcar favorito'}
                     >
-                      <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
+                      <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24" aria-hidden="true">
                         <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
                       </svg>
                     </button>
@@ -620,9 +617,10 @@ export function MemoriesTab({ profile, isDemo = false }: MemoriesTabProps) {
                     <button
                       onClick={() => handleOpenEditForm(m)}
                       className="p-2 rounded-xl border border-gray-200 text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition cursor-pointer"
+                      aria-label="Editar lembrança"
                       title="Editar Lembrança"
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                       </svg>
                     </button>
@@ -630,9 +628,10 @@ export function MemoriesTab({ profile, isDemo = false }: MemoriesTabProps) {
                     <button
                       onClick={() => handleDelete(m.id)}
                       className="p-2 rounded-xl border border-gray-200 text-gray-400 hover:text-rose-600 hover:border-rose-100 hover:bg-rose-50/20 transition cursor-pointer"
+                      aria-label="Apagar lembrança"
                       title="Apagar Lembrança"
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                       </svg>
                     </button>

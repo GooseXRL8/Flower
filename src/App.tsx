@@ -36,6 +36,40 @@ export default function App() {
   const [obSetupError, setObSetupError] = useState<string | null>(null);
   const [obSetupSubmitting, setObSetupSubmitting] = useState(false);
   const [showRlsGuide, setShowRlsGuide] = useState(false);
+  const [globalLoginError, setGlobalLoginError] = useState<string | null>(null);
+
+  // Auto-fechamento do popup de login quando a sessão do Google é obtida
+  useEffect(() => {
+    const hash = window.location.hash;
+    const isOauthRedirect = hash.includes('access_token=') || hash.includes('error=');
+    if (isOauthRedirect && window.opener) {
+      const timer = setTimeout(() => {
+        try {
+          window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, '*');
+          window.close();
+        } catch (e) {
+          window.close();
+        }
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, []);
+
+  // Ouvinte de mensagens da janela popup de autenticação para recarregar a sessão se necessário
+  useEffect(() => {
+    const handleAuthMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
+        console.log('[Auth] Recebi notificação do popup de sucesso do Google OAuth');
+        supabase.auth.getSession().then(({ data: { session } }) => {
+          if (session?.user) {
+            setIsDemoMode(false);
+          }
+        });
+      }
+    };
+    window.addEventListener('message', handleAuthMessage);
+    return () => window.removeEventListener('message', handleAuthMessage);
+  }, []);
 
   // Supabase auth state listener
   useEffect(() => {
@@ -85,7 +119,7 @@ export default function App() {
           }
         } else {
           // Public user does not exist yet. Let's create it.
-          const isAdmin = authSecUser.email === 'joaotitua@gmail.com';
+          const isAdmin = authSecUser.email === import.meta.env.VITE_ADMIN_EMAIL;
           const emailPrefix = authSecUser.email ? authSecUser.email.split('@')[0] : 'Parceiro(a)';
           const displayName = authSecUser.user_metadata?.full_name || authSecUser.user_metadata?.name || emailPrefix;
 
@@ -103,6 +137,20 @@ export default function App() {
 
           if (activeUserUnsub) return;
 
+          if (insErr) {
+            console.error('Failed to insert new public user:', insErr);
+            let userFriendlyMsg = insErr.message;
+            if (insErr.message?.includes('users_id_fkey') || insErr.message?.includes('foreign key')) {
+              userFriendlyMsg = 'A sua conta do Supabase Auth não pôde ser vinculada à tabela correspondente de usuários (fk_users_id_fkey). Se você criou esta conta recentemente e já possuía o mesmo e-mail associado ao Google, por favor mude e faça login pelo o Google OAuth para acessar com segurança!';
+            }
+            setGlobalLoginError(userFriendlyMsg);
+            await supabase.auth.signOut();
+            setCurrentUser(null);
+            setActiveProfile(null);
+            return;
+          }
+
+          setGlobalLoginError(null);
           setCurrentUser(newUser);
           setActiveProfile(null);
         }
@@ -155,6 +203,8 @@ export default function App() {
   }, []);
 
   const handleLogin = (user: User) => {
+    setGlobalLoginError(null);
+    setObSetupError(null);
     setCurrentUser(user);
     // User profile transitions are handled reactively or initially loaded
   };
@@ -179,6 +229,31 @@ export default function App() {
     };
 
     try {
+      // 0. Ensure user exists in the public "users" table to satisfy foreign key constraints
+      const { data: checkUser, error: checkErr } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', currentUser.id)
+        .maybeSingle();
+        
+      if (!checkUser) {
+        console.info('User is missing in public.users. Registering now before profile creation to prevent foreign key issues...');
+        const { error: insertUserErr } = await supabase
+          .from('users')
+          .insert({
+            id: currentUser.id,
+            username: currentUser.username,
+            is_admin: currentUser.is_admin,
+            assigned_profile_id: null,
+            created_at: currentUser.created_at || new Date().toISOString()
+          });
+          
+        if (insertUserErr) {
+          console.error('Failed to pre-insert missing user record:', insertUserErr);
+          throw new Error('Não foi possível registrar seu perfil de usuário no banco de dados para associar o casal (public.users): ' + insertUserErr.message);
+        }
+      }
+
       // 1. Create Profile document in Supabase
       const { error: pErr } = await supabase
         .from('profiles')
@@ -195,31 +270,7 @@ export default function App() {
         .eq('id', currentUser.id);
 
       if (uErr) {
-        console.warn('Failed to update users.assigned_profile_id. Checking if user exists in table users.');
-        
-        // Let's check if the user is missing in the public users database
-        const { data: checkUser, error: checkErr } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', currentUser.id)
-          .maybeSingle();
-          
-        if (!checkUser) {
-          console.info('User is missing in the public users table. Registering them now...');
-          const { error: insertUserErr } = await supabase
-            .from('users')
-            .insert({
-              id: currentUser.id,
-              username: currentUser.username,
-              is_admin: currentUser.is_admin,
-              assigned_profile_id: newPid,
-              created_at: currentUser.created_at || new Date().toISOString()
-            });
-            
-          if (insertUserErr) throw insertUserErr;
-        } else {
-          throw uErr;
-        }
+        throw uErr;
       }
 
       // Update local states
@@ -230,12 +281,13 @@ export default function App() {
       });
     } catch (err: any) {
       console.error('Failed to create onboarding couple profile in Supabase:', err);
-      setObSetupError(
-        err?.message || 
-        err?.details || 
-        String(err) || 
-        'Erro desconhecido ao tentar registrar dados no banco de dados. Por favor, verifique suas permissões de tabela no Supabase.'
-      );
+      let errMsg = err?.message || err?.details || String(err);
+      
+      if (errMsg.includes('users_id_fkey') || errMsg.includes('foreign key')) {
+        errMsg = 'A sua conta de login atual não pôde ser vinculada aos usuários públicos no banco de dados (fk_users_id_fkey). Isso acontece se houver um conflito (ex: o mesmo e-mail já existe de um login anterior do Google OAuth, ou sua sessão expirou). Para resolver, deslogue e tente criar uma conta com um e-mail diferente, ou entre utilizando a opção "Entrar com o Google"!';
+      }
+      
+      setObSetupError(errMsg);
     } finally {
       setObSetupSubmitting(false);
     }
@@ -243,6 +295,8 @@ export default function App() {
 
   const handleLogout = async () => {
     try {
+      setGlobalLoginError(null);
+      setObSetupError(null);
       if (isDemoMode) {
         setIsDemoMode(false);
         setCurrentUser(null);
@@ -391,6 +445,12 @@ export default function App() {
             >
               <span>← Voltar para FlowerLove</span>
             </button>
+            {globalLoginError && (
+              <div className="max-w-md w-full bg-rose-50 text-rose-600 border border-rose-100 rounded-2xl p-4 text-xs font-semibold mb-5 whitespace-pre-line leading-relaxed shadow-xs text-left animate-fade-in">
+                ⚠️ Conflito no login/cadastro:<br />
+                <span className="font-normal block mt-1.5 leading-relaxed">{globalLoginError}</span>
+              </div>
+            )}
             <Login onLoginSuccess={handleLogin} />
           </div>
         ) : !activeProfile ? (

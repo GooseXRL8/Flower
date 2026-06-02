@@ -36,7 +36,7 @@ export function Login({ onLoginSuccess }: LoginProps) {
       }
 
       // First time login - Bootstrap user document
-      const isAdminUser = authSecUser.email === 'joaotitua@gmail.com';
+      const isAdminUser = authSecUser.email === import.meta.env.VITE_ADMIN_EMAIL;
       const emailPrefix = authSecUser.email ? authSecUser.email.split('@')[0] : 'Parceiro(a)';
       const displayName = customUsername || authSecUser.user_metadata?.full_name || authSecUser.user_metadata?.name || emailPrefix;
 
@@ -54,20 +54,16 @@ export function Login({ onLoginSuccess }: LoginProps) {
 
       if (insertErr) {
         console.error('Error inserting user to public:', insertErr);
-        // Fallback or retry insert
+        if (insertErr.message?.includes('id_fkey') || insertErr.message?.includes('foreign key')) {
+          throw new Error('A criação de conta falhou porque este e-mail já está em uso ou pré-registrado na base do Supabase (por exemplo, via Google OAuth). Por favor, use a aba "Entrar na Conta" para fazer o login ou utilize outro e-mail para cadastrar!');
+        }
+        throw insertErr;
       }
       
       return newUser;
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to bootstrap user record:', err);
-      // Fallback
-      return {
-        id: authSecUser.id,
-        username: customUsername || authSecUser.email?.split('@')[0] || 'Parceiro(a)',
-        is_admin: authSecUser.email === 'joaotitua@gmail.com',
-        assigned_profile_id: null,
-        created_at: new Date().toISOString()
-      };
+      throw err;
     }
   };
 
@@ -75,21 +71,43 @@ export function Login({ onLoginSuccess }: LoginProps) {
     setLoading(true);
     setError('');
     try {
-      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+      const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: window.location.origin
+          redirectTo: window.location.origin,
+          skipBrowserRedirect: true,
         }
       });
       
       if (oauthError) throw oauthError;
       
-      // Since OAuth redirects the user, we let them redirect. 
-      // Safe guard against instant return:
+      if (data?.url) {
+        const width = 500;
+        const height = 650;
+        const left = window.screen.width / 2 - width / 2;
+        const top = window.screen.height / 2 - height / 2;
+        
+        const popup = window.open(
+          data.url,
+          'google_login_popup',
+          `width=${width},height=${height},top=${top},left=${left},scrollbars=yes,resizable=yes`
+        );
+        
+        if (!popup) {
+          throw new Error('O bloqueador de pop-ups impediu a abertura da tela de login. Por favor, libere pop-ups na barra de endereços do seu navegador!');
+        }
+
+        // Monitorar o fechamento do popup para tirar o estado de loading
+        const popupTimer = setInterval(() => {
+          if (!popup || popup.closed) {
+            clearInterval(popupTimer);
+            setLoading(false);
+          }
+        }, 1000);
+      }
     } catch (err: any) {
       console.error(err);
-      setError('Ocorreu um erro no login do Google: ' + (err.message || String(err)) + '\nDica: Se você estiver testando dentro do iFrame, use a opção "E-mail e Senha"!');
-    } finally {
+      setError('Ocorreu um erro no login do Google: ' + (err.message || String(err)) + '\nDica: Se você continuar encontrando dificuldades na autenticação do Google pelo iframe, use a aba "E-mail e Senha" ao lado para criar uma conta ou fazer login instantaneamente!');
       setLoading(false);
     }
   };

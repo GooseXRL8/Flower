@@ -40,9 +40,10 @@ export function calculateAnniversary(startDateStr: string): AnniversaryInfo {
     days = 0;
   }
 
-  const hours = now.getHours();
-  const minutes = now.getMinutes();
-  const seconds = now.getSeconds();
+  const remainingMs = differenceMs % (1000 * 60 * 60 * 24);
+  const hours = Math.floor(remainingMs / (1000 * 60 * 60));
+  const minutes = Math.floor((remainingMs % (1000 * 60 * 60)) / (1000 * 60));
+  const seconds = Math.floor((remainingMs % (1000 * 60)) / 1000);
 
   return {
     years,

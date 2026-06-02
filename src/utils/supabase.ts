@@ -7,8 +7,12 @@ import { createClient } from '@supabase/supabase-js';
 import { User, Profile, Memory, ProfilePhoto } from '../types';
 
 // Supabase configuration
-const supabaseUrl = 'https://bcygqwrwbdtnuqwyyjol.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJjeWdxd3J3YmR0bnVxd3l5am9sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5ODgwOTksImV4cCI6MjA5NTU2NDA5OX0.yBeixiqPF04__MFSa9sMcfnUejMKcw5iu6EMSAI1I6Y';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+
+if (!supabaseUrl || !supabaseKey) {
+  console.warn('Variáveis de ambiente VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY não configuradas.');
+}
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -54,6 +58,12 @@ export function normalizeImageUrl(url: string | null | undefined): string {
   if (!url) return '';
   let trimmed = url.trim();
   if (!trimmed) return '';
+
+  // Bloquear protocolos perigosos para evitar XSS
+  if (/^(javascript|vbscript|blob):/i.test(trimmed) || (trimmed.startsWith('data:') && !trimmed.startsWith('data:image/'))) {
+    console.warn('[normalizeImageUrl] Protocolo bloqueado:', trimmed.slice(0, 30));
+    return '';
+  }
 
   // If it doesn't start with protocol and is not base64, prepend https://
   if (
