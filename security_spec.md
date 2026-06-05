@@ -1,70 +1,78 @@
-# Security Specification & "Dirty Dozen" Attack Payloads
+# Security Specification & Database Integrity Rules (Supabase RLS)
 
-## 1. Data Invariants
-
-- **Users**: Users can only modify their own profile information (`request.auth.uid == userId`). An admin conceptual block allows users with `is_admin == true` (verified via checking their doc in `/users/{userId}`) to read list-wide values. However, users are strictly banned from changing their own `is_admin` status.
-- **Profiles**: A profile can be created by any registered user. Only people associated with the profile (either matching `profile.created_by == request.auth.uid`, or having their user document's `assigned_profile_id == profile.id`) can read and write to this profile.
-- **Memories**: Memories must belong to a valid Profile. Users can only write/read memories for their assigned profile (`request.auth.token.email_verified == true` is required if standard write occurs, and the user's `assigned_profile_id` must match the memory's `profile_id`). No recursive costs in list queries.
-- **Photos**: Up to 5 polaroids are allowed per couple on the wall. A user can only write a polaroid containing their own UID as the `user_id`, or as an admin.
+This document specifies the data invariants, Row-Level Security (RLS) rules, table constraints, and database triggers that protect client identity, data integrity, and privacy on FlowerLove.
 
 ---
 
-## 2. The Dirty Dozen Attack Payloads
+## 1. Core Data Invariants & Database Schema
 
-We simulate 12 malicious payloads aiming to compromise Identity, Integrity, or State.
+### Profiles (`public.profiles`)
+- Stores the shared configuration for the couple.
+- **Created By**: Handed by the authenticated creator on onboarding setup.
+- **URL Check Constraint**: The `image_url` field is strictly verified at the database layer to be either null, empty, or a valid HTTP/HTTPS URL:
+  `CONSTRAINT check_profile_image_url CHECK (image_url IS NULL OR image_url = '' OR image_url ~* '^https?://[^\s/$.?#].[^\s]*$')`
 
-### Case 1: ID Spoofing in User Profile Creation
-- **Action**: Creating a `/users/attackerUID` document but setting `id` as `targetUID` to impersonate another partner.
-- **Expectation**: `PERMISSION_DENIED` - UID in document must match authenticated request UID.
+### Users (`public.users`)
+- Links individual registers and login sessions to shared profiles.
+- Any user authenticated in Supabase Auth can create their own public record holding an identical UUID.
+- Privilege escalation is globally prevented; promotion to admin is protected.
 
-### Case 2: Self-Promotion to Administrator
-- **Action**: Updating `/users/attackerUID` setting `is_admin: true` to bypass administrative checks.
-- **Expectation**: `PERMISSION_DENIED` - Administrative fields are immutable or can only be managed by trusted roles.
+### Memories (`public.memories`)
+- Stores romantic milestones. Must belong to the user's active `profile_id`.
+- **URL Check Constraint**:
+  `CONSTRAINT check_memory_image_url CHECK (image_url IS NULL OR image_url = '' OR image_url ~* '^https?://[^\s/$.?#].[^\s]*$')`
 
-### Case 3: Unauthorized Profile Reading (PII Leak)
-- **Action**: Querying another couple's `/profiles/{someProfileId}` when the current user is not associated.
-- **Expectation**: `PERMISSION_DENIED` - Reads are constrained to associated partner IDs.
-
-### Case 4: Profile Theft (Modifying `created_by`)
-- **Action**: Updating a `/profiles/{coupleId}` but changing the owner metadata field `created_by` to the attacker.
-- **Expectation**: `PERMISSION_DENIED` - Owner fields are immutable.
-
-### Case 5: Temporal Contamination (Fake Start Date)
-- **Action**: Sending client-provided dates bypassing formatting or injecting future timestamps without verification.
-- **Expectation**: `PERMISSION_DENIED` - Immutable or strictly validated format fields.
-
-### Case 6: Memory Injection into Other Couples
-- **Action**: Creating a `/memories/{newId}` with `profile_id: "victim_profile"`.
-- **Expectation**: `PERMISSION_DENIED` - `profile_id` must match the active user's `assigned_profile_id`.
-
-### Case 7: Ghost Field Injection in Memory Update (Shadow Update)
-- **Action**: Updating a memory with `is_hacked: true` where `affectedKeys` shouldn't allow extension.
-- **Expectation**: `PERMISSION_DENIED` - Reject via `affectedKeys().hasOnly()` or matching schema validate.
-
-### Case 8: Memory Metadata Corruption (`created_at` Spoofing)
-- **Action**: Sending a fake chronological timestamp in `created_at` instead of the system request time.
-- **Expectation**: `PERMISSION_DENIED` - Must match `request.time`.
-
-### Case 9: Photo Flooding (Bypassing the Polaroid Ceiling)
-- **Action**: Spamming the `/photos` collection with unbounded uploads past the limits.
-- **Expectation**: `PERMISSION_DENIED` - Blocked once active counts are validated.
-
-### Case 10: Stealing Polaroid ID ownership
-- **Action**: Setting `user_id` to a victim's user ID while uploading a photo from an attacker's account.
-- **Expectation**: `PERMISSION_DENIED` - Document `user_id` must match `request.auth.uid`.
-
-### Case 11: Modifying someone else's Polaroid
-- **Action**: Deleting or updating a polaroid card registered under other couples' profiles.
-- **Expectation**: `PERMISSION_DENIED` - Users can only delete their own polaroids.
-
-### Case 12: Blanket Reading of other couples' photo streams
-- **Action**: Querying `/photos` without owner-restricted filters to scrape private couple images.
-- **Expectation**: `PERMISSION_DENIED` - Enforced rule-side query restriction requiring user ownership constraints on streams.
+### Photos (`public.photos`)
+- Wall Polaroids.
+- **URL Check Constraint**:
+  `CONSTRAINT check_photo_url CHECK (url ~* '^https?://[^\s/$.?#].[^\s]*$')`
+- **Server-Side Limit constraints (5 Photos Ceiling)**: Checked via database trigger `trigger_check_photos_limit` on `BEFORE INSERT` checks.
 
 ---
 
-## 3. Test Runner Definition (Verification Checklist)
+## 2. Row Level Security (RLS) Policies
 
-The following schema tests are validated during compile blocks of Firestore Rules to ensure protection.
-- All requests require `request.auth != null`.
-- Verified emails `request.auth.token.email_verified == true` protect core write scopes.
+All tables reside within the `public` schema in PostgreSQL with RLS strictly enabled:
+
+### A. Profiles policies
+- **Select / Update**: Restricted to the owner user (`created_by = auth.uid()::text`) or their assigned partner (whose `assigned_profile_id` matches, checked via subquery), or if the user is a system administrator (`public.is_admin(auth.uid()::text) = true`).
+- **Insert**: Allowed only if the document's creator matches the authenticated UID or if the user is an admin.
+- **Delete**: Exclusively allowed for the profile creator or an admin.
+
+### B. Users policies
+- **Select**: Allowed for the user themselves, their paired partner, or an admin.
+- **Insert**: Restrictive check matching the authenticated user's ID (`auth.uid()::text = id`).
+- **Update**: Restricted to the users themselves or admins. Prevents privilege escalation.
+
+### C. Memories policies
+- **Select / Insert / Update / Delete**: Restricted to users whose active `assigned_profile_id` matches the memory's `profile_id`, or system administrators.
+
+### D. Photos policies
+- **Select**: Users can read photos belonging to their couple profile, or if they are an admin.
+- **Insert**: Users can upload into their couple profile with their own `user_id` authenticated ID, or if they are an admin.
+- **Delete**: Allowed for the author of the photo, any partner in the couple profile, or an admin.
+
+---
+
+## 3. Server-Side Limits & Integrity Constraints
+
+### Photo Flood Prevention
+To prevent storage abuse and enforce the strict maximum of 5 polaroid cards printed on the wall, the following trigger is executed synchronously on every insertion:
+
+```sql
+CREATE OR REPLACE FUNCTION public.check_photos_limit()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF (SELECT count(*) FROM public.photos WHERE profile_id = NEW.profile_id) >= 5 THEN
+        RAISE EXCEPTION 'Limite de 5 fotos por casal atingido para este perfil!';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### URL Safety Check
+The regex `^https?://[^\s/$.?#].[^\s]*$` enforces that URLs are clean, secure external or Supabase storage web links, weeding out malformed payloads, file paths, or inline executable scripts.
+
+### Recursive Check Resolution (`is_admin` bypassing)
+To bypass table scan cycles and prevent infinite loops when querying users within the user select policy, the `public.is_admin(user_uid)` helper is configured as a `SECURITY DEFINER` function, executing with bypassed privilege loops.

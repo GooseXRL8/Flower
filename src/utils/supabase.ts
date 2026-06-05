@@ -6,15 +6,34 @@
 import { createClient } from '@supabase/supabase-js';
 import { User, Profile, Memory, ProfilePhoto } from '../types';
 
-// Supabase configuration
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+// Supabase configuration safely checked
+const getSupabaseConfig = () => {
+  let url = import.meta.env.VITE_SUPABASE_URL || '';
+  let key = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+  
+  const isUrlValid = (u: string) => {
+    try {
+      new URL(u);
+      return u.startsWith('https://') && !u.includes('SEU_PROJETO');
+    } catch {
+      return false;
+    }
+  };
 
-if (!supabaseUrl || !supabaseKey) {
-  console.warn('Variáveis de ambiente VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY não configuradas.');
-}
+  const isConfigured = !!(url && key && isUrlValid(url) && !key.includes('sua_chave'));
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+  if (!isConfigured) {
+    console.warn('Supabase não está configurado adequadamente ou está usando valores de exemplo.');
+    url = 'https://placeholder-project.supabase.co';
+    key = 'placeholder-anon-key-placeholder-anon-key-placeholder-anon-key';
+  }
+
+  return { url, key, isConfigured };
+};
+
+const config = getSupabaseConfig();
+export const isSupabaseConfigured = config.isConfigured;
+export const supabase = createClient(config.url, config.key);
 
 export enum SupabaseOperationType {
   CREATE = 'create',

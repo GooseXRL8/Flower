@@ -122,14 +122,22 @@ export function ProfilePhotosGallery({ user, profile, isDemo = false }: ProfileP
     e.preventDefault();
     setError('');
 
-    if (!inputUrl.trim()) return;
+    const trimmedUrl = inputUrl.trim();
+    if (!trimmedUrl) return;
+
+    // Validate image format with regex matching raw database check constraints
+    const urlCheckRegex = /^https?:\/\/[^\s/$.?#].[^\s]*$/i;
+    if (!urlCheckRegex.test(trimmedUrl)) {
+      setError('Por favor, insira uma URL de imagem válida (começando com http:// ou https://).');
+      return;
+    }
 
     if (photos.length >= limitNumber) {
       setError(`Limite de ${limitNumber} fotos atingido! Remova uma foto abaixo para poder registrar outra.`);
       return;
     }
 
-    const finalPhotoUrl = normalizeImageUrl(inputUrl);
+    const finalPhotoUrl = normalizeImageUrl(trimmedUrl);
     const newPhotoId = generateUUID();
     const newPhoto: ProfilePhoto = {
       id: newPhotoId,

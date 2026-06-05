@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
-import { supabase, generateUUID } from './utils/supabase';
+import React, { useState, useEffect, Suspense, lazy, useCallback, useMemo } from 'react';
+import { supabase, generateUUID, isSupabaseConfigured } from './utils/supabase';
 import { User, Profile, LoveTheme } from './types';
 import { Login } from './components/Login';
 import { FlowerAnimation } from './components/FlowerAnimation';
@@ -12,14 +12,18 @@ import { TimeCounter } from './components/TimeCounter';
 import { MemoriesTab } from './components/MemoriesTab';
 import { ProfilePhotosGallery } from './components/ProfilePhotosGallery';
 import { SettingsTab } from './components/SettingsTab';
-import { AdminTab } from './components/AdminTab';
-import { ShareableContent } from './components/ShareableContent';
 import { getWeddingAnniversarySymbol } from './utils/timeFormatter';
 import { LandingPage } from './components/LandingPage';
 import { DEMO_USER, DEMO_PROFILE } from './data/demoData';
 import { SafeImage } from './components/SafeImage';
+import { LoadingSpinner } from './components/LoadingSpinner';
+import { useI18n } from './utils/i18n';
+
+const AdminTab = lazy(() => import('./components/AdminTab').then(m => ({ default: m.AdminTab })));
+const ShareableContent = lazy(() => import('./components/ShareableContent').then(m => ({ default: m.ShareableContent })));
 
 export default function App() {
+  const { lang, t } = useI18n();
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeProfile, setActiveProfile] = useState<Profile | null>(null);
   const [activeTab, setActiveTab] = useState<'tempo' | 'memorias' | 'polaroids' | 'settings' | 'admin'>('tempo');
@@ -74,6 +78,12 @@ export default function App() {
   // Supabase auth state listener
   useEffect(() => {
     let activeUserUnsub = false;
+
+    if (!isSupabaseConfigured) {
+      console.warn('Supabase não configurado. Entrando em modo offline amigável.');
+      setLoading(false);
+      return;
+    }
 
     // Failsafe timeout to prevent infinite loading state
     const fallbackTimeout = setTimeout(() => {
@@ -451,7 +461,14 @@ export default function App() {
                 <span className="font-normal block mt-1.5 leading-relaxed">{globalLoginError}</span>
               </div>
             )}
-            <Login onLoginSuccess={handleLogin} />
+            <Login 
+              onLoginSuccess={handleLogin} 
+              onEnterDemo={() => {
+                setIsDemoMode(true);
+                setCurrentUser(DEMO_USER);
+                setActiveProfile(DEMO_PROFILE);
+              }} 
+            />
           </div>
         ) : !activeProfile ? (
           /* Profile onboarding form if user register successfully but has no profile */
@@ -743,7 +760,9 @@ CREATE POLICY "Allow public delete photos" ON public.photos FOR DELETE USING (tr
               )}
 
               {activeTab === 'admin' && (
-                <AdminTab currentUser={currentUser} />
+                <Suspense fallback={<div className="flex justify-center py-10"><LoadingSpinner size={32} /></div>}>
+                  <AdminTab currentUser={currentUser} />
+                </Suspense>
               )}
             </div>
 
@@ -754,7 +773,9 @@ CREATE POLICY "Allow public delete photos" ON public.photos FOR DELETE USING (tr
 
       {/* Share Modal Backdrop */}
       {isShareModalOpen && currentUser && activeProfile && (
-        <ShareableContent profile={activeProfile} onClose={() => setIsShareModalOpen(false)} />
+        <Suspense fallback={<div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50"><LoadingSpinner size={40} color="text-white" /></div>}>
+          <ShareableContent profile={activeProfile} onClose={() => setIsShareModalOpen(false)} />
+        </Suspense>
       )}
 
       {/* Humble Footer */}

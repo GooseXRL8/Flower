@@ -4,14 +4,15 @@
  */
 
 import React, { useState } from 'react';
-import { supabase } from '../utils/supabase';
+import { supabase, isSupabaseConfigured } from '../utils/supabase';
 import { User } from '../types';
 
 interface LoginProps {
   onLoginSuccess: (user: User) => void;
+  onEnterDemo: () => void;
 }
 
-export function Login({ onLoginSuccess }: LoginProps) {
+export function Login({ onLoginSuccess, onEnterDemo }: LoginProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [mode, setMode] = useState<'google' | 'credentials'>('google');
@@ -184,6 +185,29 @@ export function Login({ onLoginSuccess }: LoginProps) {
             Seu espaço especial sincronizado com Supabase. Guarde cada detalhe da sua história.
           </p>
         </div>
+
+        {!isSupabaseConfigured && (
+          <div className="bg-amber-50/90 text-amber-850 border border-amber-150 rounded-2xl p-4 text-xs mb-6 flex flex-col gap-2.5 text-left leading-relaxed shadow-xs animate-fade-in">
+            <div className="flex items-center gap-1.5 font-bold text-amber-900">
+              <span>⚠️</span>
+              <span>Conexão de Banco Pendente</span>
+            </div>
+            <p className="font-medium text-[11px] text-amber-700">
+              O banco de dados do Supabase ainda não foi configurado nas variáveis de ambiente (<code className="bg-white/80 px-1 py-0.5 rounded border border-amber-200">VITE_SUPABASE_URL</code> e <code className="bg-white/80 px-1 py-0.5 rounded border border-amber-200">VITE_SUPABASE_ANON_KEY</code>).
+            </p>
+            <p className="font-normal text-[11px] text-amber-800">
+              Para testar o aplicativo imediatamente com dados de exemplo offline e total privacidade local sem precisar configurar o banco agora, clique no botão interativo abaixo!
+            </p>
+            <button
+              onClick={onEnterDemo}
+              type="button"
+              id="btn-login-skip-to-demo"
+              className="mt-1 w-full bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white font-extrabold text-[10px] uppercase tracking-wider py-2.5 rounded-xl transition duration-200 cursor-pointer shadow-xs text-center"
+            >
+              ✨ Entrar no Modo Exemplo Interativo
+            </button>
+          </div>
+        )}
 
         {error && (
           <div className="bg-rose-50 text-rose-600 border border-rose-100 rounded-xl p-3 text-xs font-semibold mb-5 whitespace-pre-line leading-relaxed">
