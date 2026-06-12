@@ -35,6 +35,12 @@ const config = getSupabaseConfig();
 export const isSupabaseConfigured = config.isConfigured;
 export const supabase = createClient(config.url, config.key);
 
+// Fallback resiliente para VITE_ADMIN_EMAIL (BUG-03)
+export const ADMIN_EMAIL = (import.meta.env.VITE_ADMIN_EMAIL || 'admin@exemplo.com').trim();
+if (!import.meta.env.VITE_ADMIN_EMAIL) {
+  console.warn('Variável de ambiente VITE_ADMIN_EMAIL não configurada. Usando fallback de segurança: admin@exemplo.com');
+}
+
 export enum SupabaseOperationType {
   CREATE = 'create',
   UPDATE = 'update',

@@ -64,7 +64,7 @@ export function ConfirmModal({
             </svg>
           </div>
           <div className="space-y-1.5">
-            <h4 className="text-base font-serif font-bold text-gray-850 leading-tight">
+            <h4 className="text-base font-serif font-bold text-gray-800 leading-tight">
               {title}
             </h4>
             <p className="text-xs text-gray-400 leading-relaxed">

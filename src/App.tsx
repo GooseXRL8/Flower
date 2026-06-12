@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, Suspense, lazy, useCallback, useMemo } from 'react';
-import { supabase, generateUUID, isSupabaseConfigured } from './utils/supabase';
+import { supabase, generateUUID, isSupabaseConfigured, ADMIN_EMAIL } from './utils/supabase';
 import { User, Profile, LoveTheme } from './types';
 import { Login } from './components/Login';
 import { FlowerAnimation } from './components/FlowerAnimation';
@@ -129,7 +129,7 @@ export default function App() {
           }
         } else {
           // Public user does not exist yet. Let's create it.
-          const isAdmin = authSecUser.email === import.meta.env.VITE_ADMIN_EMAIL;
+          const isAdmin = authSecUser.email === ADMIN_EMAIL;
           const emailPrefix = authSecUser.email ? authSecUser.email.split('@')[0] : 'Parceiro(a)';
           const displayName = authSecUser.user_metadata?.full_name || authSecUser.user_metadata?.name || emailPrefix;
 
@@ -433,7 +433,7 @@ export default function App() {
               <button
                 onClick={handleLogout}
                 id="btn-logout"
-                className="text-xs font-bold text-gray-500 hover:text-rose-600 hover:bg-rose-50 border border-gray-155 bg-white px-2.5 py-1.5 rounded-lg transition flex items-center justify-center gap-1 cursor-pointer"
+                className="text-xs font-bold text-gray-500 hover:text-rose-600 hover:bg-rose-50 border border-gray-200 bg-white px-2.5 py-1.5 rounded-lg transition flex items-center justify-center gap-1 cursor-pointer"
                 title="Sair de Minha Conta"
               >
                 <span>Sair</span>
@@ -475,7 +475,7 @@ export default function App() {
           <div className="max-w-md mx-auto bg-white/95 rounded-3xl p-6 md:p-8 border border-gray-100 shadow-xl animate-fade-in space-y-5 animate-duration-300">
             <div className="text-center">
               <span className="text-4xl">👩‍❤️‍👨</span>
-              <h2 className="text-xl font-serif font-bold text-gray-850 mt-3">Configure seu Perfil de Casal</h2>
+              <h2 className="text-xl font-serif font-bold text-gray-800 mt-3">Configure seu Perfil de Casal</h2>
               <p className="text-xs text-gray-400 mt-1">Insira as informações básicas para iniciar sua galeria e contador de tempo</p>
             </div>
 

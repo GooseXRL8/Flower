@@ -373,7 +373,7 @@ export function MemoriesTab({ profile, isDemo = false }: MemoriesTabProps) {
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="Ex: Nossa primeira viagem à praia juntos"
-                  className={`w-full text-xs border border-gray-200 rounded-xl px-3 .5 py-2.5 focus:outline-none focus:ring-2 ${themeColors.ring} cursor-pointer`}
+                  className={`w-full text-xs border border-gray-200 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 ${themeColors.ring} cursor-pointer`}
                 />
               </div>
 

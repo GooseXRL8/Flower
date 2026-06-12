@@ -36,7 +36,7 @@ export function LandingPage({ onEnterLogin, onEnterDemo }: LandingPageProps) {
       <header className="max-w-6xl mx-auto w-full px-6 py-6 flex justify-between items-center relative z-20">
         <div className="flex items-center gap-2">
           <span className="text-3xl animate-pulse">🌸</span>
-          <span className="font-serif font-black text-xl text-gray-850 tracking-tight">FlowerLove</span>
+          <span className="font-serif font-black text-xl text-gray-800 tracking-tight">FlowerLove</span>
         </div>
         <button
           onClick={onEnterLogin}
@@ -75,7 +75,7 @@ export function LandingPage({ onEnterLogin, onEnterDemo }: LandingPageProps) {
 
         {/* Layer 2: 3D Walking Couple Foreground (With dynamic scroll parallax and gentle breathing loop) */}
         <motion.div 
-          className="absolute inset-0 w-full h-full pointer-events-none select-none overflow-hidden z-5 mix-blend-multiply opacity-55 sm:opacity-75 lg:opacity-95"
+          className="absolute inset-0 w-full h-full pointer-events-none select-none overflow-hidden z-[5] mix-blend-multiply opacity-55 sm:opacity-75 lg:opacity-95"
           style={{ 
             y: yCouple,
             x: xCouple,
@@ -175,7 +175,7 @@ export function LandingPage({ onEnterLogin, onEnterDemo }: LandingPageProps) {
                 <span className="text-sm bg-rose-50 text-rose-500 rounded-full p-1 leading-none">❤️</span>
                 <span className="text-[10px] font-mono text-gray-400 uppercase">12 de Junho, 2023</span>
               </div>
-              <h3 className="text-sm font-serif font-bold text-gray-850">Nosso Pedido de Namoro</h3>
+              <h3 className="text-sm font-serif font-bold text-gray-800">Nosso Pedido de Namoro</h3>
               <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">
                 "O sim mais lindo e sincero da minha vida, acompanhado de choro de felicidade..."
               </p>
@@ -216,7 +216,7 @@ export function LandingPage({ onEnterLogin, onEnterDemo }: LandingPageProps) {
       <section className="bg-white/60 border-t border-rose-100/40 py-12 relative z-10 w-full">
         <div className="max-w-6xl mx-auto px-6">
           <div className="text-center space-y-2 mb-10">
-            <h2 className="text-2xl font-serif font-black text-gray-850">O que você e seu par podem fazer?</h2>
+            <h2 className="text-2xl font-serif font-black text-gray-800">O que você e seu par podem fazer?</h2>
             <p className="text-xs text-gray-400">Uma experiência pensada exclusivamente para guardar e compartilhar seu romance</p>
           </div>
 

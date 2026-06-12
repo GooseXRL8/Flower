@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { supabase, isSupabaseConfigured } from '../utils/supabase';
+import { supabase, isSupabaseConfigured, ADMIN_EMAIL } from '../utils/supabase';
 import { User } from '../types';
 
 interface LoginProps {
@@ -37,7 +37,7 @@ export function Login({ onLoginSuccess, onEnterDemo }: LoginProps) {
       }
 
       // First time login - Bootstrap user document
-      const isAdminUser = authSecUser.email === import.meta.env.VITE_ADMIN_EMAIL;
+      const isAdminUser = authSecUser.email === ADMIN_EMAIL;
       const emailPrefix = authSecUser.email ? authSecUser.email.split('@')[0] : 'Parceiro(a)';
       const displayName = customUsername || authSecUser.user_metadata?.full_name || authSecUser.user_metadata?.name || emailPrefix;
 
@@ -340,7 +340,7 @@ export function Login({ onLoginSuccess, onEnterDemo }: LoginProps) {
                   required
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="w-full text-xs border border-gray-150 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-rose-250 bg-gray-50/50"
+                  className="w-full text-xs border border-gray-150 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-rose-200 bg-gray-50/50"
                   placeholder="Seu nome ou apelido carinhoso"
                 />
               </div>
@@ -353,7 +353,7 @@ export function Login({ onLoginSuccess, onEnterDemo }: LoginProps) {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full text-xs border border-gray-150 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-rose-250 bg-gray-50/50"
+                className="w-full text-xs border border-gray-150 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-rose-200 bg-gray-50/50"
                 placeholder="Ex e-mail: par@amor.com"
               />
             </div>
@@ -365,7 +365,7 @@ export function Login({ onLoginSuccess, onEnterDemo }: LoginProps) {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full text-xs border border-gray-150 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-rose-250 bg-gray-50/50"
+                className="w-full text-xs border border-gray-150 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-rose-200 bg-gray-50/50"
                 placeholder="Mínimo de 6 caracteres"
               />
             </div>

@@ -103,7 +103,7 @@ export function TimeCounter({ profile }: TimeCounterProps) {
         {/* Total stats */}
         <div className="flex flex-col items-center gap-2 mb-6">
           <div className="text-sm font-medium text-gray-650">
-            Tempo total: <span className="font-bold text-gray-850 font-mono">{info.totalDays}</span> {info.totalDays === 1 ? 'dia' : 'dias'} de muitos sorrisos!
+            Tempo total: <span className="font-bold text-gray-800 font-mono">{info.totalDays}</span> {info.totalDays === 1 ? 'dia' : 'dias'} de muitos sorrisos!
           </div>
           <span className={`text-sm px-3 py-1 rounded-full font-serif ${themeColors.badge} font-semibold flex items-center gap-1.5`}>
             <span>{weddingAnniversary.symbol}</span>

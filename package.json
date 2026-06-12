@@ -1,7 +1,9 @@
 {
-  "name": "react-example",
+  "name": "flower-love",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "description": "A romantic space for couples to celebrate their love story",
+  "author": "Ganso Dev",
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",

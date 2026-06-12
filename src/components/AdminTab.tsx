@@ -17,9 +17,10 @@ export function AdminTab({ currentUser }: AdminTabProps) {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   
-  // Registration simulator inside admin
+  // Registration credentials states
   const [newUsername, setNewUsername] = useState('');
-  const [newPassword, setNewPassword] = useState(''); // Visual block as Supabase uses register inputs, kept safely for UI compatibility
+  const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserPassword, setNewUserPassword] = useState('');
   const [newIsAdmin, setNewIsAdmin] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -71,8 +72,21 @@ export function AdminTab({ currentUser }: AdminTabProps) {
     setSuccess('');
 
     const trimmedUser = newUsername.trim();
+    const trimmedEmail = newUserEmail.trim();
+    const trimmedPassword = newUserPassword.trim();
+
     if (!trimmedUser) {
       setError('Por favor, preencha o nome de usuário.');
+      return;
+    }
+
+    if (!trimmedEmail) {
+      setError('Por favor, preencha o e-mail.');
+      return;
+    }
+
+    if (trimmedPassword.length < 6) {
+      setError('A senha precisa ter pelo menos 6 caracteres.');
       return;
     }
 
@@ -82,54 +96,88 @@ export function AdminTab({ currentUser }: AdminTabProps) {
       return;
     }
 
-    // Fabricate unique random records in Supabase database
-    const createdUserId = generateUUID();
-    const pId = generateUUID();
-
-    const newProfile: Profile = {
-      id: pId,
-      name1: trimmedUser,
-      name2: 'Amor de ' + trimmedUser,
-      created_by: createdUserId,
-      start_date: new Date().toISOString().split('T')[0],
-      custom_title: `História de ${trimmedUser} & Amor`,
-      theme: 'pink',
-      created_at: new Date().toISOString()
-    };
-
-    const newUser: User = {
-      id: createdUserId,
-      username: trimmedUser,
-      is_admin: newIsAdmin,
-      assigned_profile_id: pId,
-      created_at: new Date().toISOString(),
-    };
+    setLoading(true);
 
     try {
-      // Save profile in Supabase table
+      let createdUserId = generateUUID();
+      const pId = generateUUID();
+
+      // Se o Supabase estiver configurado, criamos um usuário Auth de verdade! (BUG-01)
+      const url = import.meta.env.VITE_SUPABASE_URL || '';
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+      const isConfigured = !!(url && anonKey && !url.includes('placeholder-project') && !url.includes('SEU_PROJETO'));
+
+      if (isConfigured) {
+        // Criar cliente local temporário com persistSession false para não deslogar o administrador ativo
+        const { createClient } = await import('@supabase/supabase-js');
+        const tempSupabase = createClient(url, anonKey, {
+          auth: { persistSession: false, autoRefreshToken: false }
+        });
+
+        const { data: authData, error: authErr } = await tempSupabase.auth.signUp({
+          email: trimmedEmail,
+          password: trimmedPassword,
+          options: {
+            data: {
+              full_name: trimmedUser,
+            }
+          }
+        });
+
+        if (authErr) throw authErr;
+        if (!authData.user) {
+          throw new Error('Não foi possível obter o usuário de autenticação retornado.');
+        }
+
+        createdUserId = authData.user.id;
+      }
+
+      const newProfile: Profile = {
+        id: pId,
+        name1: trimmedUser,
+        name2: 'Amor de ' + trimmedUser,
+        created_by: createdUserId,
+        start_date: new Date().toISOString().split('T')[0],
+        custom_title: `História de ${trimmedUser} & Amor`,
+        theme: 'pink',
+        created_at: new Date().toISOString()
+      };
+
+      const newUser: User = {
+        id: createdUserId,
+        username: trimmedUser,
+        is_admin: newIsAdmin,
+        assigned_profile_id: pId,
+        created_at: new Date().toISOString(),
+      };
+
+      // Salvar perfil em public.profiles
       const { error: profileErr } = await supabase
         .from('profiles')
         .insert(newProfile);
       if (profileErr) throw profileErr;
 
-      // Save user in Supabase table
+      // Salvar usuário em public.users
       const { error: userErr } = await supabase
         .from('users')
         .insert(newUser);
       if (userErr) throw userErr;
 
       setNewUsername('');
-      setNewPassword('');
+      setNewUserEmail('');
+      setNewUserPassword('');
       setNewIsAdmin(false);
-      setSuccess(`Usuário ${newUser.username} cadastrado com sucesso com perfil integrado no Supabase!`);
+      setSuccess(`Usuário ${newUser.username} cadastrado com sucesso com conta de autenticação integrada!`);
       
-      // Reload admin views
+      // Recarregar os dados do painel do admin
       await loadData();
       
-      setTimeout(() => setSuccess(''), 3505);
+      setTimeout(() => setSuccess(''), 4500);
     } catch (err: any) {
       console.error('Error manual account registration:', err);
       setError('Falha ao registrar usuário: ' + (err.message || String(err)));
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -212,7 +260,7 @@ export function AdminTab({ currentUser }: AdminTabProps) {
             
             <form onSubmit={handleCreateUser} className="space-y-3">
               <div className="space-y-1">
-                <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Username</label>
+                <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Username / Nome do Par</label>
                 <input
                   type="text"
                   required
@@ -224,12 +272,26 @@ export function AdminTab({ currentUser }: AdminTabProps) {
               </div>
 
               <div className="space-y-1">
-                <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Senha (OAuth Simulado)</label>
+                <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">E-mail do Casal</label>
+                <input
+                  type="email"
+                  required
+                  value={newUserEmail}
+                  onChange={(e) => setNewUserEmail(e.target.value)}
+                  placeholder="Ex: julia@amor.com"
+                  className="w-full text-xs border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-pink-100 cursor-pointer"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Senha de Acesso</label>
                 <input
                   type="text"
-                  disabled
-                  placeholder="Google OAuth Ativo"
-                  className="w-full text-xs border border-gray-100 rounded-xl px-3 py-2 bg-gray-50 text-gray-400 focus:outline-none cursor-not-allowed"
+                  required
+                  value={newUserPassword}
+                  onChange={(e) => setNewUserPassword(e.target.value)}
+                  placeholder="Mínimo de 6 caracteres"
+                  className="w-full text-xs border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-pink-100 cursor-pointer"
                 />
               </div>
 
