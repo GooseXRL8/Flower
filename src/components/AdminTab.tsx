@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { createClient } from '@supabase/supabase-js';
 import { supabase, handleSupabaseError, SupabaseOperationType, generateUUID } from '../utils/supabase';
 import { User, Profile } from '../types';
 import { ConfirmModal } from './ConfirmModal';
@@ -109,7 +110,6 @@ export function AdminTab({ currentUser }: AdminTabProps) {
 
       if (isConfigured) {
         // Criar cliente local temporário com persistSession false para não deslogar o administrador ativo
-        const { createClient } = await import('@supabase/supabase-js');
         const tempSupabase = createClient(url, anonKey, {
           auth: { persistSession: false, autoRefreshToken: false }
         });
