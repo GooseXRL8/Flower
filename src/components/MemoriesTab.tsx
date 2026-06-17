@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase, safeParseTags, normalizeImageUrl, generateUUID } from '../utils/supabase';
+import { uploadImageToStorage, deleteImageFromStorage, isSupabaseStorageUrl } from '../utils/imageUpload';
 import { Memory, Profile } from '../types';
 import { SafeImage } from './SafeImage';
 import { DEMO_MEMORIES } from '../data/demoData';
@@ -39,6 +40,8 @@ export function MemoriesTab({ profile, isDemo = false }: MemoriesTabProps) {
   const [isFavorite, setIsFavorite] = useState(false);
   const [previewError, setPreviewError] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setPreviewError(false);
@@ -172,6 +175,8 @@ export function MemoriesTab({ profile, isDemo = false }: MemoriesTabProps) {
     setImageUrl('');
     setTagsInput('');
     setIsFavorite(false);
+    setPreviewError(false);
+    setUploadingImage(false);
     setIsFormOpen(true);
   };
 
@@ -184,7 +189,31 @@ export function MemoriesTab({ profile, isDemo = false }: MemoriesTabProps) {
     setImageUrl(memory.image_url || '');
     setTagsInput(memory.tags.join(', '));
     setIsFavorite(memory.is_favorite);
+    setPreviewError(false);
+    setUploadingImage(false);
     setIsFormOpen(true);
+  };
+
+  const handleImageFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingImage(true);
+    setError('');
+
+    try {
+      const url = await uploadImageToStorage(file, 'memories', profile.id);
+      setImageUrl(url);
+      setPreviewError(false);
+    } catch (err: any) {
+      console.error('Error uploading image:', err);
+      setError(err.message || 'Erro ao fazer upload da imagem');
+    } finally {
+      setUploadingImage(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
   };
 
   const handleSaveMemory = async (e: React.FormEvent) => {
@@ -412,13 +441,38 @@ export function MemoriesTab({ profile, isDemo = false }: MemoriesTabProps) {
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Link de Imagem Ilustrativa</label>
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Imagem da Lembrança</label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploadingImage}
+                    className={`flex-1 text-xs font-semibold py-2.5 px-3.5 rounded-xl border border-gray-200 transition duration-200 cursor-pointer ${
+                      uploadingImage
+                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                        : `${themeColors.bg} ${themeColors.text} hover:border-gray-300`
+                    }`}
+                  >
+                    {uploadingImage ? '📤 Enviando...' : '📸 Selecionar do Dispositivo'}
+                  </button>
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  onChange={handleImageFileSelect}
+                  className="hidden"
+                  disabled={uploadingImage}
+                />
+                <div className="text-[10px] text-gray-500 text-center py-2 border-t border-b border-gray-100">
+                  ou
+                </div>
                 <input
                   type="text"
                   value={imageUrl}
                   onChange={(e) => setImageUrl(e.target.value)}
-                  placeholder="Cole qualquer link (Google Drive, Dropbox, Imgur, Pinterest, etc.)"
+                  placeholder="Cole um link (Google Drive, Dropbox, Imgur, Pinterest, etc.)"
                   className={`w-full text-xs border border-gray-200 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 ${themeColors.ring} cursor-pointer`}
                 />
               </div>

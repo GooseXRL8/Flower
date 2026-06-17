@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase, normalizeImageUrl, generateUUID } from '../utils/supabase';
+import { uploadImageToStorage, deleteImageFromStorage, isSupabaseStorageUrl } from '../utils/imageUpload';
 import { ProfilePhoto, User, Profile } from '../types';
 import { SafeImage } from './SafeImage';
 import { DEMO_PHOTOS } from '../data/demoData';
@@ -28,6 +29,8 @@ export function ProfilePhotosGallery({ user, profile, isDemo = false }: ProfileP
   const [photoToDelete, setPhotoToDelete] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setPreviewError(false);
@@ -169,6 +172,28 @@ export function ProfilePhotosGallery({ user, profile, isDemo = false }: ProfileP
     }
   };
 
+  const handleImageFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingImage(true);
+    setError('');
+
+    try {
+      const url = await uploadImageToStorage(file, 'photos', profile.id);
+      setInputUrl(url);
+      setPreviewError(false);
+    } catch (err: any) {
+      console.error('Error uploading image:', err);
+      setError(err.message || 'Erro ao fazer upload da imagem');
+    } finally {
+      setUploadingImage(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
   const handleDeletePhoto = (id: string) => {
     setPhotoToDelete(id);
   };
@@ -211,16 +236,43 @@ export function ProfilePhotosGallery({ user, profile, isDemo = false }: ProfileP
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">URL do Registro</label>
+                  <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Foto da Polaroid</label>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploadingImage}
+                    className={`w-full text-sm font-semibold py-2 px-3 rounded-xl border transition duration-200 cursor-pointer ${
+                      uploadingImage
+                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200'
+                        : `${themeColors.bg} ${themeColors.text} hover:border-gray-300 border-gray-200`
+                    }`}
+                  >
+                    {uploadingImage ? '📤 Enviando...' : '📸 Selecionar Foto'}
+                  </button>
                   <input
-                    type="text"
-                    required
-                    value={inputUrl}
-                    onChange={(e) => setInputUrl(e.target.value)}
-                    placeholder="Cole qualquer link (Drive, Dropbox, Imgur, etc.)"
-                    className={`w-full text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 ${themeColors.ring} cursor-pointer`}
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    onChange={handleImageFileSelect}
+                    className="hidden"
+                    disabled={uploadingImage}
                   />
                 </div>
+              </div>
+
+              <div className="text-center text-[11px] text-gray-400 py-2 border-t border-b border-gray-100">
+                ou
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Link da Imagem (Alternativa)</label>
+                <input
+                  type="text"
+                  value={inputUrl}
+                  onChange={(e) => setInputUrl(e.target.value)}
+                  placeholder="Cole um link (Drive, Dropbox, Imgur, etc.)"
+                  className={`w-full text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 ${themeColors.ring} cursor-pointer`}
+                />
               </div>
 
               {/* LIVE PREVIEW AND HELP BLOCK */}
