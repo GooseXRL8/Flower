@@ -1,20 +1,74 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# FlowerLove 🌸
 
-# Run and deploy your AI Studio app
+## Um Espaço Romântico e Privativo para Casais
 
-This contains everything you need to run your app locally.
+FlowerLove é uma plataforma dedicada a casais que desejam celebrar e eternizar sua história de amor. Crie um espaço único e inesquecível para guardar memórias especiais, colecionar fotos em formato polaroid, acompanhar o tempo juntos e compartilhar sentimentos em lindos cartões.
 
-View your app in AI Studio: https://ai.studio/apps/6aa76ab4-5e8c-4059-bbaf-137dfebfc752
+### Visão Geral
 
-## Run Locally
+FlowerLove oferece uma experiência personalizada para que cada casal possa registrar e reviver seus momentos mais preciosos. Com uma interface intuitiva e recursos pensados para o romance, é o lugar perfeito para nutrir o amor.
 
-**Prerequisites:**  Node.js
+![Página Inicial do FlowerLove](docs/screenshots/landing.webp)
 
+### Funcionalidades Principais
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+#### 🕒 Contador Preciso
+
+Acompanhe a quantidade exata de anos, meses, dias, minutos e segundos passados ao lado do seu parceiro. Celebre cada marco com precisão e carinho.
+
+![Dashboard do FlowerLove com contador de tempo](docs/screenshots/dashboard.webp)
+
+#### 📖 Baú de Lembranças
+
+Guarde cada viagem, jantar romântico, passeio surpresa e piada interna. Registre a data, local e adicione fotos para reviver esses momentos sempre que quiser.
+
+![Baú de Lembranças do FlowerLove](docs/screenshots/memories.webp)
+
+#### 📸 Mural de Polaroids
+
+Monte uma galeria vintage com seus registros mais memoráveis. Adicione suas fotos preferidas organizadas em formato polaroid, criando um mural visualmente encantador.
+
+![Mural de Polaroids do FlowerLove](docs/screenshots/polaroids.webp)
+
+#### 💝 Cartões de Celebração
+
+Gere lindos cartões personalizados com mensagens de amor e o contador de tempo de vocês. Compartilhe digitalmente ou imprima para um toque especial.
+
+![Gerador de Cartões do FlowerLove](docs/screenshots/card.webp)
+
+### Como Rodar o Projeto Localmente
+
+Para configurar e rodar o FlowerLove em seu ambiente de desenvolvimento, siga os passos abaixo:
+
+1.  **Clone o repositório:**
+    ```bash
+    git clone https://github.com/GooseXRL8/Flower.git
+    cd Flower
+    ```
+
+2.  **Instale as dependências:**
+    ```bash
+    npm install
+    ```
+
+3.  **Ajuste as configurações do Vite (se necessário):**
+    Certifique-se de que `server.allowedHosts` esteja configurado para `true` no `vite.config.ts` para permitir o acesso externo durante o desenvolvimento.
+
+4.  **Inicie o servidor de desenvolvimento:**
+    ```bash
+    npm run dev
+    ```
+
+    O aplicativo estará disponível em `http://localhost:3000` (ou outra porta disponível, como `3001`).
+
+### Contribuição
+
+Sinta-se à vontade para contribuir com o projeto! Para sugestões, melhorias ou reportar bugs, por favor, abra uma issue ou envie um pull request.
+
+### Licença
+
+Este projeto está licenciado sob a [MIT License](LICENSE).
+
+---
+
+Feito com ❤️ por Ganso Dev para casais apaixonados.
