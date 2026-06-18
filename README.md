@@ -36,31 +36,6 @@ Gere lindos cartões personalizados com mensagens de amor e o contador de tempo 
 
 ![Gerador de Cartões do FlowerLove](docs/screenshots/card.webp)
 
-### Como Rodar o Projeto Localmente
-
-Para configurar e rodar o FlowerLove em seu ambiente de desenvolvimento, siga os passos abaixo:
-
-1.  **Clone o repositório:**
-    ```bash
-    git clone https://github.com/GooseXRL8/Flower.git
-    cd Flower
-    ```
-
-2.  **Instale as dependências:**
-    ```bash
-    npm install
-    ```
-
-3.  **Ajuste as configurações do Vite (se necessário):**
-    Certifique-se de que `server.allowedHosts` esteja configurado para `true` no `vite.config.ts` para permitir o acesso externo durante o desenvolvimento.
-
-4.  **Inicie o servidor de desenvolvimento:**
-    ```bash
-    npm run dev
-    ```
-
-    O aplicativo estará disponível em `http://localhost:3000` (ou outra porta disponível, como `3001`).
-
 ### Contribuição
 
 Sinta-se à vontade para contribuir com o projeto! Para sugestões, melhorias ou reportar bugs, por favor, abra uma issue ou envie um pull request.
